@@ -18,6 +18,7 @@ repository = "https://github.com/heykav/microprice-rust"
 microprice-core = { path = "crates/microprice-core" }
 microprice-calibration = { path = "crates/microprice-calibration" }
 microprice-data = { path = "crates/microprice-data" }
+clap = { version = "4", features = ["derive"] }
 thiserror = "2"
 proptest = "1"
 criterion = "0.8"

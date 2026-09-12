@@ -67,6 +67,19 @@ impl MicroPriceModel {
         &self.metadata
     }
 
+    /// The calibrated `G*` adjustment vector, one entry per state — for
+    /// inspection/reporting (e.g. `microprice-cli`'s `inspect`/`benchmark`
+    /// subcommands). Not used on the `predict` hot path itself, which
+    /// indexes `self.g_star` directly.
+    pub fn g_star(&self) -> &[f64] {
+        &self.g_star
+    }
+
+    /// Per-state training observation counts — for inspection/reporting.
+    pub fn visits(&self) -> &[u64] {
+        &self.visits
+    }
+
     fn state_space(&self) -> Result<StateSpaceConfig, CalibrationError> {
         let imbalance = ImbalanceBucketing::new(self.metadata.num_imbalance_buckets)
             .map_err(CalibrationError::from)?;

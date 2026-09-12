@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Command-line interface for MicroPrice-Rust (train/predict/evaluate/benchmark - not yet implemented, Phase 11)."
+description = "Command-line interface for MicroPrice-Rust: train/predict/inspect/benchmark against the synthetic development dataset (Phase 10)."
 
 [[bin]]
 name = "microprice"
@@ -12,3 +12,6 @@ path = "src/main.rs"
 
 [dependencies]
 microprice-core.workspace = true
+microprice-calibration.workspace = true
+microprice-data.workspace = true
+clap.workspace = true

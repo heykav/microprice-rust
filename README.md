@@ -5,11 +5,12 @@ limit-order-book micro-price estimation, in the queue-imbalance / Markov-chain
 tradition associated with Stoikov, Cont, Sirignano and related
 queue-reactive work.
 
-**Status: Phase 9 of the roadmap below (model artifacts) — a real, working,
-end-to-end calibration → prediction pipeline exists**, though without a
-CLI, real-data ingestion, Python bindings, or visualization yet (Phases
-10-15). See [`docs/model-spec.md`](docs/model-spec.md) for the precise
-mathematical definitions this crate implements, and the
+**Status: Phase 10 of the roadmap below (the `microprice` CLI) — a real,
+working, end-to-end train → predict → inspect → benchmark pipeline exists
+and is exercised through an actual command-line binary**, though still
+without real-data ingestion, out-of-sample evaluation, Python bindings, or
+visualization (Phases 11-15). See [`docs/model-spec.md`](docs/model-spec.md)
+for the precise mathematical definitions this crate implements, and the
 [Roadmap](#roadmap) below for what's next.
 
 ## What exists today
@@ -93,9 +94,21 @@ rates, plus an `imbalance_persistence` parameter (a simple Markov chain on
 price-move direction) that is explicitly disclosed as this generator's own
 modeling choice, not something derived from a cited paper.
 
-Everything else in the workspace (`microprice-eval`, `microprice-cli`)
-exists as an empty workspace member so the crate graph is in place, and is
-explicitly unimplemented — each crate's `lib.rs`/`main.rs` says so.
+**`microprice-cli`** — the `microprice` binary: `train` (generate synthetic
+data, run the full counting → estimation → solving pipeline, save a model
+artifact), `predict` (load a model, predict one book's micro-price),
+`inspect` (load a model, print its metadata plus a summary of what was
+*actually* calibrated — g_star range, per-state visit counts, how many
+states have zero real observations), and `benchmark` (measure real
+`predict`/`predict_batch` throughput on the machine it's run on, printed
+with an explicit note that hardware/toolchain aren't auto-captured the way
+`docs/benchmarking.md`'s Criterion numbers are). `train`'s only data source
+today is `microprice-data`'s synthetic generator — real-data ingestion is
+Phase 12 — and the CLI says so in its own output, not just in this README.
+
+Everything else in the workspace (`microprice-eval`) exists as an empty
+workspace member so the crate graph is in place, and is explicitly
+unimplemented — its `lib.rs` says so.
 
 ## Build and test
 
@@ -113,10 +126,22 @@ cargo fmt --all --check
 estimation, smoothing, the solver, and model serialization, plus 2
 known-truth integration tests) — including the hand-derived toy-matrix
 check, the known-truth convergence test, and the chunk-boundary
-merge-correctness tests described above.
+merge-correctness tests described above. `microprice-cli` is a binary
+crate (no unit tests of its own); it was verified by actually running
+`train`/`predict`/`inspect`/`benchmark` end to end, including the error
+paths (a nonexistent model path, a crossed book, malformed spread bucket
+bounds), and confirming none of them panic — see the commit history for
+the exact commands and output.
 
 ```bash
 cargo bench -p microprice-core   # see docs/benchmarking.md for the last measured result
+
+# End-to-end, against synthetic data (the only source available before Phase 12):
+cargo run -p microprice-cli -- train --output /tmp/model.bin --num-events 500000
+cargo run -p microprice-cli -- inspect --model /tmp/model.bin
+cargo run -p microprice-cli -- predict --model /tmp/model.bin \
+    --bid-price-ticks 10000 --bid-qty 500 --ask-price-ticks 10002 --ask-qty 500
+cargo run -p microprice-cli -- benchmark --model /tmp/model.bin
 ```
 
 ## Design commitments carried from day one
@@ -141,9 +166,12 @@ brief, not all at once:
 6. ~~Transition-probability estimation (with configurable smoothing)~~ (Phase 7, done)
 7. ~~The micro-price adjustment solver~~ (Phase 8, done — fixed-point iteration)
 8. ~~Model artifact serialization~~ (Phase 9, done — bincode + JSON metadata, validated on load)
-9. Allocation-free hot-path inference — `MicroPriceModel::predict` already exists; the
-   dedicated benchmark + any further optimization is still open
-10. Calibration/prediction CLI
+9. ~~Allocation-free hot-path inference~~ (Phase 9-10, done — `predict`/
+   `predict_batch` exist and are exercised by `microprice benchmark`,
+   which measures real, on-machine ns/predict — see the README's "Build
+   and test" section for the exact command; no fabricated numbers)
+10. ~~Calibration/prediction CLI~~ (Phase 10, done — `microprice
+    train`/`predict`/`inspect`/`benchmark`)
 11. Chronological out-of-sample evaluation
 12. Parquet ingestion
 13. Python bindings (PyO3)
