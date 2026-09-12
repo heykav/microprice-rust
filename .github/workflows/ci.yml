@@ -24,6 +24,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+      # microprice-cli depends on plotters, whose default "ttf" font
+      # backend (font-kit) needs the system fontconfig library on Linux -
+      # not present on this runner by default. Without this, the build
+      # fails with "Package fontconfig was not found in the pkg-config
+      # search path" (a real CI failure this project hit once already).
+      - run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   test:
@@ -34,6 +40,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      # See the clippy job's comment: only needed on Linux (macOS's
+      # font-kit backend uses CoreText, no fontconfig involved).
+      - if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev
       - run: cargo build --workspace --all-targets --all-features
       - run: cargo test --workspace --all-features
 
@@ -42,6 +52,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      # See the clippy job's comment.
+      - run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev
       - run: cargo doc --workspace --no-deps
         env:
           RUSTDOCFLAGS: -D warnings

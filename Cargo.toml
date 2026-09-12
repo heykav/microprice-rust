@@ -20,6 +20,16 @@ microprice-calibration = { path = "crates/microprice-calibration" }
 microprice-data = { path = "crates/microprice-data" }
 microprice-eval = { path = "crates/microprice-eval" }
 clap = { version = "4", features = ["derive"] }
+# Default features (font-kit-based "ttf" text rendering) require the
+# system fontconfig library on Linux - see the `libfontconfig1-dev` apt
+# install in .github/workflows/ci.yml's clippy/test/doc jobs, added after
+# this broke real CI the first time ("Package fontconfig was not found in
+# the pkg-config search path"). Tried switching to the pure-Rust
+# `ab_glyph` font backend instead, but it requires the caller to
+# explicitly `register_font()` an embedded font file with no built-in
+# fallback (`FontError::FontUnavailable` otherwise) - installing
+# fontconfig in CI is the smaller, more standard fix, used broadly for
+# font-kit-dependent crates, versus bundling a font asset in this repo.
 plotters = "0.3"
 thiserror = "2"
 proptest = "1"
