@@ -5,10 +5,10 @@ limit-order-book micro-price estimation, in the queue-imbalance / Markov-chain
 tradition associated with Stoikov, Cont, Sirignano and related
 queue-reactive work.
 
-**Status: Phase 11 of the roadmap below (chronological out-of-sample
-evaluation) — a real, working, end-to-end train → predict → inspect →
-benchmark → evaluate pipeline exists**, though still without real-data
-ingestion, Python bindings, or visualization (Phases 12-15). See
+**Status: Phase 12 of the roadmap below (Parquet ingestion) — a real,
+working, end-to-end train → predict → inspect → benchmark → evaluate
+pipeline exists, and can now read/write real Parquet files**, though still
+without Python bindings or visualization (Phases 13-15). See
 [`docs/model-spec.md`](docs/model-spec.md) for the precise mathematical
 definitions this crate implements, and the [Roadmap](#roadmap) below for
 what's next.
@@ -36,17 +36,33 @@ described unambiguously, plus the V1 state discretization engine.
   in [`docs/benchmarking.md`](docs/benchmarking.md) — real numbers, not a
   target.
 
-**`microprice-data`** — a `MarketDataSource` trait, and a deterministic
+**`microprice-data`** — a `MarketDataSource` trait, a deterministic
 synthetic `BookEvent` generator (`SyntheticEventGenerator`) that becomes
-the development dataset for every phase after this one. Explicitly **not**
-a claim of realistic exchange dynamics (see the module docs and
-`docs/model-spec.md`) — its actual job is a fully reproducible (same seed
-→ byte-identical output), configurable stream of always-valid events for
-CI, examples, and the Phase 6 known-truth solver validation. Configurable
-arrival/cancel/market-order/price-move rates, plus an
-`imbalance_persistence` parameter (a simple Markov chain on price-move
+the development dataset for every phase after this one, and (behind the
+`parquet-ingestion` Cargo feature, **off by default**) real Parquet
+ingestion. Explicitly **not** a claim of realistic exchange dynamics (see
+the module docs and `docs/model-spec.md`) — its actual job is a fully
+reproducible (same seed → byte-identical output), configurable stream of
+always-valid events for CI, examples, and the Phase 6 known-truth solver
+validation. Configurable arrival/cancel/market-order/price-move rates, plus
+an `imbalance_persistence` parameter (a simple Markov chain on price-move
 direction) that is explicitly disclosed as this generator's own modeling
 choice, not something derived from a cited paper.
+
+`parquet-ingestion` (`write_events_to_parquet`/`read_events_from_parquet`)
+is off by default because `arrow`+`parquet` pull in a genuinely large
+dependency tree (~50 crates) that only matters to callers actually reading
+real Parquet files — the synthetic generator, and CI's default test job,
+shouldn't pay that build-time cost. Reading validates every row through
+the same `TopOfBook::new` path everything else uses (a row that fails,
+e.g. a crossed book, aborts the read with a typed error naming the row
+index, rather than being silently dropped) — this is a data *ingestion*
+boundary, where a malformed row is worth stopping for, unlike the
+Phase 5 transition counter's deliberate skip-on-encode-failure behavior at
+the state-encoding boundary. Verified with a real 250-row write → read
+round-trip test (exact equality) and a hand-built-bad-bytes test proving
+the row-index reporting is accurate, not just plausible-looking — see
+`microprice-data/src/parquet.rs`'s tests.
 
 **`microprice-calibration`** — the real calibration pipeline: streaming
 transition counting (`TransitionCounter`, event-to-event sampling — see the
@@ -150,20 +166,25 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo fmt --all --check
 ```
 
-102 tests currently: 49 in `microprice-core`, 11 in `microprice-data`, 29
-in `microprice-calibration` (27 unit tests across transition counting,
-estimation, smoothing, the solver, and model serialization, plus 2
-known-truth integration tests), and 13 in `microprice-eval` (splitting,
-metrics, and end-to-end evaluation, including a hand-computed-by-hand MAE/
-bias/direction-accuracy check and a test proving an unencodable book is
-skipped rather than aborting the whole evaluation) — including the
-hand-derived toy-matrix check, the known-truth convergence test, and the
-chunk-boundary merge-correctness tests described above. `microprice-cli`
-is a binary crate (no unit tests of its own); it was verified by actually
-running `train`/`predict`/`inspect`/`benchmark`/`evaluate` end to end,
-including the error paths (a nonexistent model path, a crossed book,
-malformed spread bucket bounds), and confirming none of them panic — see
-the commit history for the exact commands and output.
+105 tests currently (run with `--all-features` — CI's `test` job does, so
+the Parquet tests below actually execute, not just type-check): 49 in
+`microprice-core`, 14 in `microprice-data` (11 for the synthetic
+generator, plus 3 behind `parquet-ingestion`: a 250-row write→read
+round-trip, a hand-built-bad-bytes row-validation test, and a
+nonexistent-file test), 29 in `microprice-calibration` (27 unit tests
+across transition counting, estimation, smoothing, the solver, and model
+serialization, plus 2 known-truth integration tests), and 13 in
+`microprice-eval` (splitting, metrics, and end-to-end evaluation,
+including a hand-computed-by-hand MAE/bias/direction-accuracy check and a
+test proving an unencodable book is skipped rather than aborting the whole
+evaluation) — including the hand-derived toy-matrix check, the
+known-truth convergence test, and the chunk-boundary merge-correctness
+tests described above. `microprice-cli` is a binary crate (no unit tests
+of its own); it was verified by actually running
+`train`/`predict`/`inspect`/`benchmark`/`evaluate` end to end, including
+the error paths (a nonexistent model path, a crossed book, malformed
+spread bucket bounds), and confirming none of them panic — see the commit
+history for the exact commands and output.
 
 ```bash
 cargo bench -p microprice-core   # see docs/benchmarking.md for the last measured result
@@ -176,6 +197,9 @@ cargo run -p microprice-cli -- predict --model /tmp/model.bin \
 cargo run -p microprice-cli -- benchmark --model /tmp/model.bin
 cargo run -p microprice-cli -- evaluate --num-events 300000 \
     --num-imbalance-buckets 10 --spread-bucket-bounds "1,2,4"
+
+# Parquet ingestion (feature-gated - see microprice-data/src/parquet.rs):
+cargo test -p microprice-data --features parquet-ingestion
 ```
 
 ## Design commitments carried from day one
@@ -211,7 +235,10 @@ brief, not all at once:
     `microprice evaluate`; see above for a real measured result and its
     honest interpretation, and the module docs for why a Brier score is a
     disclosed gap rather than a fabricated one)
-12. Parquet ingestion
+12. ~~Parquet ingestion~~ (Phase 12, done — `microprice-data`'s
+    `parquet-ingestion` feature; a 250-row write→read round trip and a
+    hand-built-bad-bytes row-validation test both pass, feature off by
+    default to keep the base crate's dependency tree small)
 13. Python bindings (PyO3)
 14. Visualization (imbalance curves, heatmaps, transition matrices)
 15. Profiling-driven optimization (SIMD, parallel calibration, sparse matrices)

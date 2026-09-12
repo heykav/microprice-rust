@@ -4,10 +4,20 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Market data source adapters for MicroPrice-Rust: a MarketDataSource trait and a deterministic synthetic event generator (CSV/Parquet adapters are Phase 13, not yet implemented)."
+description = "Market data source adapters for MicroPrice-Rust: a MarketDataSource trait, a deterministic synthetic event generator, and (behind the parquet-ingestion feature) Parquet ingestion."
 
 [dependencies]
 microprice-core.workspace = true
 thiserror.workspace = true
 rand.workspace = true
 rand_chacha.workspace = true
+arrow = { version = "59", optional = true, default-features = false }
+parquet = { version = "59", optional = true, default-features = false, features = ["arrow"] }
+
+[features]
+# Off by default: arrow/parquet pull in a substantial dependency tree that
+# only matters to callers actually reading/writing Parquet files - everyone
+# else (the synthetic generator, CI's default test run) shouldn't pay for
+# it. Named distinctly from the `parquet` optional dependency itself to
+# avoid Cargo's implicit-feature-name collision with `dep:parquet`.
+parquet-ingestion = ["dep:arrow", "dep:parquet"]
