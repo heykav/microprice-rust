@@ -5,13 +5,13 @@ limit-order-book micro-price estimation, in the queue-imbalance / Markov-chain
 tradition associated with Stoikov, Cont, Sirignano and related
 queue-reactive work.
 
-**Status: Phase 10 of the roadmap below (the `microprice` CLI) — a real,
-working, end-to-end train → predict → inspect → benchmark pipeline exists
-and is exercised through an actual command-line binary**, though still
-without real-data ingestion, out-of-sample evaluation, Python bindings, or
-visualization (Phases 11-15). See [`docs/model-spec.md`](docs/model-spec.md)
-for the precise mathematical definitions this crate implements, and the
-[Roadmap](#roadmap) below for what's next.
+**Status: Phase 11 of the roadmap below (chronological out-of-sample
+evaluation) — a real, working, end-to-end train → predict → inspect →
+benchmark → evaluate pipeline exists**, though still without real-data
+ingestion, Python bindings, or visualization (Phases 12-15). See
+[`docs/model-spec.md`](docs/model-spec.md) for the precise mathematical
+definitions this crate implements, and the [Roadmap](#roadmap) below for
+what's next.
 
 ## What exists today
 
@@ -94,21 +94,50 @@ rates, plus an `imbalance_persistence` parameter (a simple Markov chain on
 price-move direction) that is explicitly disclosed as this generator's own
 modeling choice, not something derived from a cited paper.
 
+**`microprice-eval`** — chronological out-of-sample evaluation:
+`chronological_split` (a train/test split that respects time order —
+**never** a random shuffle, which would leak future information into
+training), `evaluate` (runs a calibrated model against a held-out
+chronological stream at a configurable horizon and reports MAE, signed
+bias, and directional accuracy against the `mid`/`weighted_mid` baselines
+the model spec already defines), and `metrics` (the plain error functions
+underneath). A Brier score is **not** implemented here — it needs a
+probabilistic `P(up)` prediction, and `TransitionCounter` only ever
+accumulates a signed delta *sum* per state, never separate up/down
+transition counts, so there's nothing honest to compute one from without
+inventing data the calibration pipeline doesn't collect. That's recorded
+as a disclosed gap (see the module's own doc comment), not silently
+skipped.
+
 **`microprice-cli`** — the `microprice` binary: `train` (generate synthetic
 data, run the full counting → estimation → solving pipeline, save a model
 artifact), `predict` (load a model, predict one book's micro-price),
 `inspect` (load a model, print its metadata plus a summary of what was
 *actually* calibrated — g_star range, per-state visit counts, how many
-states have zero real observations), and `benchmark` (measure real
+states have zero real observations), `benchmark` (measure real
 `predict`/`predict_batch` throughput on the machine it's run on, printed
 with an explicit note that hardware/toolchain aren't auto-captured the way
-`docs/benchmarking.md`'s Criterion numbers are). `train`'s only data source
-today is `microprice-data`'s synthetic generator — real-data ingestion is
-Phase 12 — and the CLI says so in its own output, not just in this README.
+`docs/benchmarking.md`'s Criterion numbers are), and `evaluate` (generate
+synthetic data, split it chronologically, calibrate only on the train
+side, and report real out-of-sample MAE/bias/direction-accuracy against
+the held-out test side — see below for what this actually measured on
+synthetic data, reported honestly rather than cherry-picked). `train`'s
+only data source today is `microprice-data`'s synthetic generator —
+real-data ingestion is Phase 12 — and the CLI says so in its own output,
+not just in this README.
 
-Everything else in the workspace (`microprice-eval`) exists as an empty
-workspace member so the crate graph is in place, and is explicitly
-unimplemented — its `lib.rs` says so.
+A real run (`microprice evaluate --num-events 300000
+--num-imbalance-buckets 10 --spread-bucket-bounds "1,2,4"`, seed 42,
+horizon 1, 90,000 held-out events) measured **microprice MAE 0.1094 ticks
+vs. naive-mid MAE 0.0988 ticks — microprice did *not* beat the naive mid
+baseline on this synthetic dataset at this horizon**, and direction
+accuracy was 0.5147 (barely above the 0.5 coin-flip floor). This is
+reported as-is, not hidden: this generator's `imbalance_persistence` drives
+price-move direction as its own Markov chain independent of queue
+imbalance (see `microprice-data`'s module docs), so there is no strong
+imbalance → future-price-direction signal in this *particular* synthetic
+dataset for the model to find — a properly negative result about this
+synthetic data's structure, not (yet) evidence about real order-book data.
 
 ## Build and test
 
@@ -121,17 +150,20 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo fmt --all --check
 ```
 
-89 tests currently: 49 in `microprice-core`, 11 in `microprice-data`, and
-29 in `microprice-calibration` (27 unit tests across transition counting,
+102 tests currently: 49 in `microprice-core`, 11 in `microprice-data`, 29
+in `microprice-calibration` (27 unit tests across transition counting,
 estimation, smoothing, the solver, and model serialization, plus 2
-known-truth integration tests) — including the hand-derived toy-matrix
-check, the known-truth convergence test, and the chunk-boundary
-merge-correctness tests described above. `microprice-cli` is a binary
-crate (no unit tests of its own); it was verified by actually running
-`train`/`predict`/`inspect`/`benchmark` end to end, including the error
-paths (a nonexistent model path, a crossed book, malformed spread bucket
-bounds), and confirming none of them panic — see the commit history for
-the exact commands and output.
+known-truth integration tests), and 13 in `microprice-eval` (splitting,
+metrics, and end-to-end evaluation, including a hand-computed-by-hand MAE/
+bias/direction-accuracy check and a test proving an unencodable book is
+skipped rather than aborting the whole evaluation) — including the
+hand-derived toy-matrix check, the known-truth convergence test, and the
+chunk-boundary merge-correctness tests described above. `microprice-cli`
+is a binary crate (no unit tests of its own); it was verified by actually
+running `train`/`predict`/`inspect`/`benchmark`/`evaluate` end to end,
+including the error paths (a nonexistent model path, a crossed book,
+malformed spread bucket bounds), and confirming none of them panic — see
+the commit history for the exact commands and output.
 
 ```bash
 cargo bench -p microprice-core   # see docs/benchmarking.md for the last measured result
@@ -142,6 +174,8 @@ cargo run -p microprice-cli -- inspect --model /tmp/model.bin
 cargo run -p microprice-cli -- predict --model /tmp/model.bin \
     --bid-price-ticks 10000 --bid-qty 500 --ask-price-ticks 10002 --ask-qty 500
 cargo run -p microprice-cli -- benchmark --model /tmp/model.bin
+cargo run -p microprice-cli -- evaluate --num-events 300000 \
+    --num-imbalance-buckets 10 --spread-bucket-bounds "1,2,4"
 ```
 
 ## Design commitments carried from day one
@@ -172,7 +206,11 @@ brief, not all at once:
    and test" section for the exact command; no fabricated numbers)
 10. ~~Calibration/prediction CLI~~ (Phase 10, done — `microprice
     train`/`predict`/`inspect`/`benchmark`)
-11. Chronological out-of-sample evaluation
+11. ~~Chronological out-of-sample evaluation~~ (Phase 11, done —
+    `microprice-eval`'s `chronological_split`/`evaluate`, wired into
+    `microprice evaluate`; see above for a real measured result and its
+    honest interpretation, and the module docs for why a Brier score is a
+    disclosed gap rather than a fabricated one)
 12. Parquet ingestion
 13. Python bindings (PyO3)
 14. Visualization (imbalance curves, heatmaps, transition matrices)

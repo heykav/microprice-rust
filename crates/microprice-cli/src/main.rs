@@ -6,6 +6,7 @@
 //! data source available today, and says so.
 
 mod benchmark;
+mod evaluate;
 mod inspect;
 mod predict;
 mod train;
@@ -33,6 +34,8 @@ enum Command {
     Inspect(inspect::InspectArgs),
     /// Measure real predict / predict_batch throughput on this machine.
     Benchmark(benchmark::BenchmarkArgs),
+    /// Chronological out-of-sample evaluation against mid/weighted_mid baselines.
+    Evaluate(evaluate::EvaluateArgs),
 }
 
 fn main() -> std::process::ExitCode {
@@ -42,6 +45,7 @@ fn main() -> std::process::ExitCode {
         Command::Predict(args) => predict::run(args),
         Command::Inspect(args) => inspect::run(args),
         Command::Benchmark(args) => benchmark::run(args),
+        Command::Evaluate(args) => evaluate::run(args),
     };
     match result {
         Ok(()) => std::process::ExitCode::SUCCESS,

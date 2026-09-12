@@ -480,6 +480,7 @@ dependencies = [
  "microprice-calibration",
  "microprice-core",
  "microprice-data",
+ "microprice-eval",
 ]
 
 [[package]]
@@ -505,7 +506,10 @@ dependencies = [
 name = "microprice-eval"
 version = "0.1.0"
 dependencies = [
+ "microprice-calibration",
  "microprice-core",
+ "microprice-data",
+ "thiserror",
 ]
 
 [[package]]
