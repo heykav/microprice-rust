@@ -10,6 +10,7 @@ mod evaluate;
 mod inspect;
 mod predict;
 mod train;
+mod visualize;
 
 use clap::{Parser, Subcommand};
 
@@ -36,6 +37,8 @@ enum Command {
     Benchmark(benchmark::BenchmarkArgs),
     /// Chronological out-of-sample evaluation against mid/weighted_mid baselines.
     Evaluate(evaluate::EvaluateArgs),
+    /// Render static PNG plots of a calibrated model's g_star surface.
+    Visualize(visualize::VisualizeArgs),
 }
 
 fn main() -> std::process::ExitCode {
@@ -46,6 +49,7 @@ fn main() -> std::process::ExitCode {
         Command::Inspect(args) => inspect::run(args),
         Command::Benchmark(args) => benchmark::run(args),
         Command::Evaluate(args) => evaluate::run(args),
+        Command::Visualize(args) => visualize::run(args),
     };
     match result {
         Ok(()) => std::process::ExitCode::SUCCESS,

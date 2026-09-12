@@ -20,6 +20,7 @@ microprice-calibration = { path = "crates/microprice-calibration" }
 microprice-data = { path = "crates/microprice-data" }
 microprice-eval = { path = "crates/microprice-eval" }
 clap = { version = "4", features = ["derive"] }
+plotters = "0.3"
 thiserror = "2"
 proptest = "1"
 criterion = "0.8"

@@ -16,3 +16,4 @@ microprice-calibration.workspace = true
 microprice-data.workspace = true
 microprice-eval.workspace = true
 clap.workspace = true
+plotters.workspace = true

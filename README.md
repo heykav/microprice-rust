@@ -5,11 +5,11 @@ limit-order-book micro-price estimation, in the queue-imbalance / Markov-chain
 tradition associated with Stoikov, Cont, Sirignano and related
 queue-reactive work.
 
-**Status: Phase 13 of the roadmap below (Python bindings) — a real,
-working, end-to-end train → predict → inspect → benchmark → evaluate
-pipeline exists, reads/writes real Parquet files, and is now also usable
-from Python** via `microprice-python` (PyO3), though still without
-visualization (Phases 14-15). See
+**Status: Phase 14 of the roadmap below (visualization) — a real,
+working, end-to-end train → predict → inspect → benchmark → evaluate →
+visualize pipeline exists, reads/writes real Parquet files, and is usable
+from Python** via `microprice-python` (PyO3), with only profiling-driven
+optimization (Phase 15) left. See
 [`docs/model-spec.md`](docs/model-spec.md) for the precise mathematical
 definitions this crate implements, and the [Roadmap](#roadmap) below for
 what's next.
@@ -132,7 +132,15 @@ only data source today is `microprice-data`'s synthetic generator — the
 CLI says so in its own output, not just in this README. `microprice-data`
 can also read/write real Parquet files as of Phase 12 (see below), but
 that isn't wired into a CLI flag yet — only used directly as a library
-today.
+today. `visualize` (Phase 14) renders three static PNGs from a trained
+model via `plotters`: `g_star_by_imbalance.png` (calibrated adjustment vs.
+imbalance, one line per spread bucket), `g_star_heatmap.png` (the full
+adjustment surface, diverging blue/red around zero), and
+`visits_heatmap.png` (training-data density on the same grid, so a viewer
+can immediately see which heatmap cells reflect real data vs. mostly the
+smoothing prior — plotting `g_star` alone would silently imply every cell
+is equally trustworthy). This is a static, non-interactive visualization,
+not a browser-based explorer.
 
 A real run (`microprice evaluate --num-events 300000
 --num-imbalance-buckets 10 --spread-bucket-bounds "1,2,4"`, seed 42,
@@ -210,6 +218,7 @@ cargo run -p microprice-cli -- predict --model /tmp/model.bin \
 cargo run -p microprice-cli -- benchmark --model /tmp/model.bin
 cargo run -p microprice-cli -- evaluate --num-events 300000 \
     --num-imbalance-buckets 10 --spread-bucket-bounds "1,2,4"
+cargo run -p microprice-cli -- visualize --model /tmp/model.bin --output-dir /tmp/viz
 
 # Parquet ingestion (a library function, not yet a CLI flag - feature-gated,
 # see microprice-data/src/parquet.rs):
@@ -266,7 +275,12 @@ brief, not all at once:
     [`docs/python-bindings.md`](docs/python-bindings.md) for why it's its
     own Cargo workspace, verified via `maturin` and a dedicated CI job
     rather than the root `cargo test --workspace`)
-14. Visualization (imbalance curves, heatmaps, transition matrices)
+14. ~~Visualization (imbalance curves, heatmaps, transition matrices)~~
+    (Phase 14, done — `microprice visualize`, three static PNGs via
+    `plotters`; the g_star/visits heatmap pairing and the exact peak-cell
+    color were both verified by sampling the rendered PNG's actual pixels,
+    not just eyeballing a preview — see the commit history for what that
+    caught)
 15. Profiling-driven optimization (SIMD, parallel calibration, sparse matrices)
 
 No benchmark numbers, accuracy claims, or example predictions will be added

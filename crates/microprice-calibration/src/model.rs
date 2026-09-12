@@ -80,7 +80,13 @@ impl MicroPriceModel {
         &self.visits
     }
 
-    fn state_space(&self) -> Result<StateSpaceConfig, CalibrationError> {
+    /// Reconstructs the [`StateSpaceConfig`] this model was calibrated
+    /// against, from its own metadata — public so callers that need to
+    /// `decode` a state (e.g. `microprice-cli`'s `visualize` subcommand,
+    /// mapping each `g_star` entry back to an imbalance/spread range for
+    /// plotting) don't have to duplicate the bucket-reconstruction logic
+    /// `predict`/`predict_batch` already contain.
+    pub fn state_space(&self) -> Result<StateSpaceConfig, CalibrationError> {
         let imbalance = ImbalanceBucketing::new(self.metadata.num_imbalance_buckets)
             .map_err(CalibrationError::from)?;
         let spread = SpreadBucketing::new(self.metadata.spread_bucket_bounds_ticks.clone())
