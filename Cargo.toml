@@ -1,0 +1,19 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/microprice-core",
+    "crates/microprice-calibration",
+    "crates/microprice-data",
+    "crates/microprice-eval",
+    "crates/microprice-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/heykav/microprice-rust"
+
+[workspace.dependencies]
+microprice-core = { path = "crates/microprice-core" }
+thiserror = "2"

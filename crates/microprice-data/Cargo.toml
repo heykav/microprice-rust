@@ -1,0 +1,10 @@
+[package]
+name = "microprice-data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Market data source adapters (CSV/Parquet/synthetic) for MicroPrice-Rust (not yet implemented - Phase 4/13)."
+
+[dependencies]
+microprice-core.workspace = true

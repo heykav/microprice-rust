@@ -1,0 +1,10 @@
+[package]
+name = "microprice-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Core primitive types for MicroPrice-Rust: prices, quantities, top-of-book, and queue imbalance."
+
+[dependencies]
+thiserror.workspace = true

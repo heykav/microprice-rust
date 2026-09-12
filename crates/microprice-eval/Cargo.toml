@@ -1,0 +1,10 @@
+[package]
+name = "microprice-eval"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Chronological out-of-sample evaluation framework for MicroPrice-Rust (not yet implemented - Phase 12)."
+
+[dependencies]
+microprice-core.workspace = true
