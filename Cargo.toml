@@ -19,3 +19,5 @@ microprice-core = { path = "crates/microprice-core" }
 thiserror = "2"
 proptest = "1"
 criterion = "0.8"
+rand = "0.10"
+rand_chacha = "0.10"

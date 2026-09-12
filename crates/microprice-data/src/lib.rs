@@ -1,8 +1,16 @@
 //! Market data source adapters.
 //!
-//! **Not yet implemented.** This crate exists as a workspace member per the
-//! Phase 1 bootstrap. The `MarketDataSource` trait, the synthetic event
-//! generator, and the CSV/Parquet adapters are Phase 4 and Phase 13 of the
-//! project roadmap.
+//! As of Phase 4: a `MarketDataSource` trait and a deterministic synthetic
+//! event generator (the project's development dataset — see the module
+//! docs on [`synthetic`] for exactly what it does and doesn't claim). The
+//! CSV/Parquet adapters are Phase 13.
 
 #![forbid(unsafe_code)]
+
+pub mod error;
+pub mod source;
+pub mod synthetic;
+
+pub use error::DataError;
+pub use source::MarketDataSource;
+pub use synthetic::{SyntheticConfig, SyntheticEventGenerator};

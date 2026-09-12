@@ -4,7 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Market data source adapters (CSV/Parquet/synthetic) for MicroPrice-Rust (not yet implemented - Phase 4/13)."
+description = "Market data source adapters for MicroPrice-Rust: a MarketDataSource trait and a deterministic synthetic event generator (CSV/Parquet adapters are Phase 13, not yet implemented)."
 
 [dependencies]
 microprice-core.workspace = true
+thiserror.workspace = true
+rand.workspace = true
+rand_chacha.workspace = true

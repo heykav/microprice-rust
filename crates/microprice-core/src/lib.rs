@@ -15,6 +15,7 @@
 
 pub mod book;
 pub mod error;
+pub mod event;
 pub mod imbalance;
 pub mod price;
 pub mod quantity;
@@ -22,6 +23,7 @@ pub mod state;
 
 pub use book::{BookValidationPolicy, SpreadTicks, TopOfBook};
 pub use error::MicroPriceError;
+pub use event::{BookEvent, SymbolId};
 pub use imbalance::Imbalance;
 pub use price::PriceTicks;
 pub use quantity::Quantity;

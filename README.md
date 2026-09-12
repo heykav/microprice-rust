@@ -5,7 +5,7 @@ limit-order-book micro-price estimation, in the queue-imbalance / Markov-chain
 tradition associated with Stoikov, Cont, Sirignano and related
 queue-reactive work.
 
-**Status: Phase 3 of the roadmap below (state discretization) — not yet a
+**Status: Phase 4 of the roadmap below (synthetic data) — not yet a
 working micro-price model.** This README describes what actually exists
 right now, not the project's eventual shape. See
 [`docs/model-spec.md`](docs/model-spec.md) for the precise mathematical
@@ -14,8 +14,8 @@ what's next.
 
 ## What exists today
 
-`microprice-core` — the primitive types an L1 order book needs to be
-described unambiguously, and the V1 state discretization engine. Still no
+**`microprice-core`** — the primitive types an L1 order book needs to be
+described unambiguously, plus the V1 state discretization engine. Still no
 calibration/estimation logic (no transition counting, no solver, no
 trained model) — that starts in `microprice-calibration`, Phase 5+.
 
@@ -28,6 +28,8 @@ trained model) — that starts in `microprice-calibration`, Phase 5+.
 - `Imbalance` — queue imbalance `I = Qb / (Qb + Qa)`, with the zero/zero
   degenerate case returning a typed error (`MicroPriceError::EmptyBook`)
   rather than an invented value.
+- `SymbolId`, `BookEvent` — an exchange-agnostic instrument identifier and
+  a timestamped/sequenced top-of-book observation.
 - `StateId`, `ImbalanceBucketing`, `SpreadBucketing`, `StateSpaceConfig` —
   the state discretization engine: uniform imbalance buckets (`O(1)`
   lookup), explicit spread-tick bucket boundaries, packed into one
@@ -35,10 +37,22 @@ trained model) — that starts in `microprice-calibration`, Phase 5+.
   in [`docs/benchmarking.md`](docs/benchmarking.md) — real numbers, not a
   target.
 
+**`microprice-data`** — a `MarketDataSource` trait, and a deterministic
+synthetic `BookEvent` generator (`SyntheticEventGenerator`) that becomes
+the development dataset for every phase after this one. Explicitly **not**
+a claim of realistic exchange dynamics (see the module docs and
+`docs/model-spec.md`) — its actual job is a fully reproducible (same seed
+→ byte-identical output), configurable stream of always-valid events for
+CI, examples, and the Phase 6 known-truth solver validation. Configurable
+arrival/cancel/market-order/price-move rates, plus an
+`imbalance_persistence` parameter (a simple Markov chain on price-move
+direction) that is explicitly disclosed as this generator's own modeling
+choice, not something derived from a cited paper.
+
 Everything else in the workspace (`microprice-calibration`,
-`microprice-data`, `microprice-eval`, `microprice-cli`) exists as an empty
-workspace member so the crate graph is in place, and is explicitly
-unimplemented — each crate's `lib.rs`/`main.rs` says so.
+`microprice-eval`, `microprice-cli`) exists as an empty workspace member so
+the crate graph is in place, and is explicitly unimplemented — each
+crate's `lib.rs`/`main.rs` says so.
 
 ## Build and test
 
@@ -51,13 +65,17 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo fmt --all --check
 ```
 
-47 tests currently, all in `microprice-core`: valid/crossed/locked books
+60 tests currently: 49 in `microprice-core` (valid/crossed/locked books
 under every validation policy, one- and both-sided zero depth, extreme
 (near-`u64::MAX`) quantities, overflow detection, spread and mid-price
-arithmetic, the imbalance degenerate cases, and (Phase 3) state-encoding
-unit tests plus `proptest` property tests proving `state_id < state_count`,
+arithmetic, the imbalance degenerate cases, and state-encoding unit tests
+plus `proptest` property tests proving `state_id < state_count`,
 determinism, and in-range bucket indices across randomly generated
-configurations and books.
+configurations and books) and 11 in `microprice-data` (config validation,
+same-seed determinism, different-seed divergence, strictly-increasing
+timestamps/sequence numbers, the configured spread always being
+maintained, and the both-sides-empty safety net actually firing when
+depletion is forced — tested directly, not just avoided).
 
 ```bash
 cargo bench -p microprice-core   # see docs/benchmarking.md for the last measured result
@@ -79,7 +97,7 @@ brief, not all at once:
 
 1. ~~Mathematical specification + core primitive types~~ (Phase 1, done)
 2. ~~State discretization engine (imbalance/spread bucketing → `StateId`)~~ (Phase 3, done)
-3. Synthetic order-book event generator (development dataset)
+3. ~~Synthetic order-book event generator (development dataset)~~ (Phase 4, done)
 4. Streaming transition counting
 5. Price-movement classification
 6. Transition-probability estimation (with configurable smoothing)
