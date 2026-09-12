@@ -45,3 +45,21 @@ jobs:
       - run: cargo doc --workspace --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
+
+  python-bindings:
+    # microprice-python is deliberately its own Cargo workspace (see its
+    # Cargo.toml) and is not covered by the `test` job above - a PyO3
+    # extension-module cdylib can't be exercised by plain `cargo test`, so
+    # it needs its own job building it with maturin and importing it from
+    # real Python, or it would silently bit-rot with no CI coverage at all.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install maturin
+      - run: cd crates/microprice-python && maturin build --release -o dist
+      - run: pip install crates/microprice-python/dist/*.whl
+      - run: python docs/python_bindings_smoke_test.py

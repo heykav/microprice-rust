@@ -1,4 +1,9 @@
 /target
+# microprice-python is its own Cargo workspace (see its Cargo.toml), so
+# it gets its own target/ dir here rather than under the root /target.
+crates/microprice-python/target
+crates/microprice-python/dist
+*.whl
 **/*.rs.bk
 *.pdb
 .DS_Store

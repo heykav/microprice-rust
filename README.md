@@ -5,10 +5,11 @@ limit-order-book micro-price estimation, in the queue-imbalance / Markov-chain
 tradition associated with Stoikov, Cont, Sirignano and related
 queue-reactive work.
 
-**Status: Phase 12 of the roadmap below (Parquet ingestion) — a real,
+**Status: Phase 13 of the roadmap below (Python bindings) — a real,
 working, end-to-end train → predict → inspect → benchmark → evaluate
-pipeline exists, and can now read/write real Parquet files**, though still
-without Python bindings or visualization (Phases 13-15). See
+pipeline exists, reads/writes real Parquet files, and is now also usable
+from Python** via `microprice-python` (PyO3), though still without
+visualization (Phases 14-15). See
 [`docs/model-spec.md`](docs/model-spec.md) for the precise mathematical
 definitions this crate implements, and the [Roadmap](#roadmap) below for
 what's next.
@@ -99,17 +100,6 @@ Correctness story, concretely:
   with the correct fix (overlap consecutive chunks by one event) also
   tested directly — not an unverified claim either way.
 
-**`microprice-data`** — a `MarketDataSource` trait, and a deterministic
-synthetic `BookEvent` generator (`SyntheticEventGenerator`) that becomes
-the development dataset for every phase after this one. Explicitly **not**
-a claim of realistic exchange dynamics (see the module docs and
-`docs/model-spec.md`) — its actual job is a fully reproducible (same seed
-→ byte-identical output), configurable stream of always-valid events for
-CI and examples. Configurable arrival/cancel/market-order/price-move
-rates, plus an `imbalance_persistence` parameter (a simple Markov chain on
-price-move direction) that is explicitly disclosed as this generator's own
-modeling choice, not something derived from a cited paper.
-
 **`microprice-eval`** — chronological out-of-sample evaluation:
 `chronological_split` (a train/test split that respects time order —
 **never** a random shuffle, which would leak future information into
@@ -138,9 +128,11 @@ synthetic data, split it chronologically, calibrate only on the train
 side, and report real out-of-sample MAE/bias/direction-accuracy against
 the held-out test side — see below for what this actually measured on
 synthetic data, reported honestly rather than cherry-picked). `train`'s
-only data source today is `microprice-data`'s synthetic generator —
-real-data ingestion is Phase 12 — and the CLI says so in its own output,
-not just in this README.
+only data source today is `microprice-data`'s synthetic generator — the
+CLI says so in its own output, not just in this README. `microprice-data`
+can also read/write real Parquet files as of Phase 12 (see below), but
+that isn't wired into a CLI flag yet — only used directly as a library
+today.
 
 A real run (`microprice evaluate --num-events 300000
 --num-imbalance-buckets 10 --spread-bucket-bounds "1,2,4"`, seed 42,
@@ -154,6 +146,27 @@ imbalance (see `microprice-data`'s module docs), so there is no strong
 imbalance → future-price-direction signal in this *particular* synthetic
 dataset for the model to find — a properly negative result about this
 synthetic data's structure, not (yet) evidence about real order-book data.
+
+**`microprice-python`** — PyO3 bindings exposing `MicroPriceModel`
+(`load`/`save`/`predict`/`metadata`) and `train_synthetic` (the same
+counting → estimation → solving pipeline as `microprice train`) to Python.
+**Deliberately its own Cargo workspace**, not a member of the root one: a
+PyO3 extension-module `cdylib` can't be built/tested by plain `cargo
+build`/`cargo test` the way every other crate here is (it expects to be
+loaded into a running Python process, not linked against `libpython`
+directly) — it's built and verified with `maturin` instead, with its own
+dedicated CI job (`python-bindings`) running a real
+`maturin build` → `pip install` → import-and-exercise smoke test rather
+than being silently uncovered. See
+[`docs/python-bindings.md`](docs/python-bindings.md) for exact setup
+steps and a real measured session (on Python 3.12): training and
+predicting from Python reproduced **the same numbers** the Rust CLI
+produces on identical inputs (it's the same Rust core underneath, not a
+reimplementation), and both error paths (a crossed book, a missing model
+file) were confirmed to raise clean Python `ValueError`s rather than
+panicking or segfaulting. Not yet wired up: Parquet ingestion from
+Python, and batch prediction (`predict_batch`) — see that doc's "What
+isn't wired up yet" section.
 
 ## Build and test
 
@@ -189,7 +202,7 @@ history for the exact commands and output.
 ```bash
 cargo bench -p microprice-core   # see docs/benchmarking.md for the last measured result
 
-# End-to-end, against synthetic data (the only source available before Phase 12):
+# End-to-end, against synthetic data (the CLI's only wired-up data source):
 cargo run -p microprice-cli -- train --output /tmp/model.bin --num-events 500000
 cargo run -p microprice-cli -- inspect --model /tmp/model.bin
 cargo run -p microprice-cli -- predict --model /tmp/model.bin \
@@ -198,8 +211,12 @@ cargo run -p microprice-cli -- benchmark --model /tmp/model.bin
 cargo run -p microprice-cli -- evaluate --num-events 300000 \
     --num-imbalance-buckets 10 --spread-bucket-bounds "1,2,4"
 
-# Parquet ingestion (feature-gated - see microprice-data/src/parquet.rs):
+# Parquet ingestion (a library function, not yet a CLI flag - feature-gated,
+# see microprice-data/src/parquet.rs):
 cargo test -p microprice-data --features parquet-ingestion
+
+# Python bindings (their own Cargo workspace - see docs/python-bindings.md):
+cd crates/microprice-python && maturin develop
 ```
 
 ## Design commitments carried from day one
@@ -208,8 +225,13 @@ cargo test -p microprice-data --features parquet-ingestion
 - No heap allocation in any primitive-type calculation.
 - Typed errors (`MicroPriceError`, via `thiserror`) — no bare strings, no
   `unwrap()` in library code.
-- CI runs `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`, and
-  `cargo doc` (warnings-as-errors) on Linux and macOS for every push.
+- CI runs `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test
+  --all-features`, and `cargo doc` (warnings-as-errors) on Linux and
+  macOS for every push, plus a dedicated `python-bindings` job that
+  builds `microprice-python` with `maturin` and runs a real Python
+  import/exercise smoke test (see `docs/python-bindings.md` for why that
+  crate needs its own job rather than being covered by `cargo test
+  --workspace`).
 
 ## Roadmap
 
@@ -239,7 +261,11 @@ brief, not all at once:
     `parquet-ingestion` feature; a 250-row write→read round trip and a
     hand-built-bad-bytes row-validation test both pass, feature off by
     default to keep the base crate's dependency tree small)
-13. Python bindings (PyO3)
+13. ~~Python bindings (PyO3)~~ (Phase 13, done — `microprice-python`;
+    see above for a real cross-checked session and
+    [`docs/python-bindings.md`](docs/python-bindings.md) for why it's its
+    own Cargo workspace, verified via `maturin` and a dedicated CI job
+    rather than the root `cargo test --workspace`)
 14. Visualization (imbalance curves, heatmaps, transition matrices)
 15. Profiling-driven optimization (SIMD, parallel calibration, sparse matrices)
 

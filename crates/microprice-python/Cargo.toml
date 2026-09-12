@@ -1,0 +1,29 @@
+[package]
+name = "microprice-python"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/heykav/microprice-rust"
+description = "PyO3 Python bindings for MicroPrice-Rust (Phase 13)."
+
+# Deliberately its own workspace, NOT a member of the root MicroPrice-Rust
+# workspace: a PyO3 extension-module crate builds as a cdylib that expects
+# to be dynamically loaded into a running Python process (no libpython
+# linked in), so `cargo test`/`cargo build` from the root workspace can't
+# exercise it the way every other crate here is exercised - it's built and
+# verified separately via `maturin build`/`maturin develop` (see
+# docs/python-bindings.md), never by the root `cargo test --workspace`
+# that CI runs. Keeping it out of the root workspace keeps that CI
+# invocation meaningful for everything else instead of silently needing
+# special-casing for one member.
+[workspace]
+
+[lib]
+name = "microprice_python"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+microprice-core = { path = "../microprice-core" }
+microprice-calibration = { path = "../microprice-calibration" }
+microprice-data = { path = "../microprice-data" }
+pyo3 = { version = "0.29", features = ["extension-module"] }
