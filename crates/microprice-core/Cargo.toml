@@ -8,3 +8,11 @@ description = "Core primitive types for MicroPrice-Rust: prices, quantities, top
 
 [dependencies]
 thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "state_encoding"
+harness = false

@@ -1,14 +1,12 @@
 //! # microprice-core
 //!
 //! Core primitive types for MicroPrice-Rust: integer-tick prices, resting
-//! quantities, a validated top-of-book type, and queue imbalance.
+//! quantities, a validated top-of-book type, queue imbalance, and (as of
+//! Phase 3 / Prompt 2) the V1 state discretization engine.
 //!
-//! This crate is Phase 1 of the project (see the repository root README and
-//! `docs/model-spec.md`): it deliberately implements *only* the primitives
-//! an L1 order book needs to be described unambiguously. State encoding
-//! (Phase 3), transition estimation (Phase 5), and the micro-price solver
-//! itself live in other crates and other phases — nothing here should be
-//! read as a preview of those.
+//! Transition estimation and the micro-price solver itself (Phase 5+) live
+//! in `microprice-calibration`, not implemented yet — nothing here should
+//! be read as a preview of that.
 //!
 //! No heap allocation happens in any of these primitive calculations, and
 //! `unsafe` is forbidden crate-wide.
@@ -27,4 +25,4 @@ pub use error::MicroPriceError;
 pub use imbalance::Imbalance;
 pub use price::PriceTicks;
 pub use quantity::Quantity;
-pub use state::StateId;
+pub use state::{ImbalanceBucketing, SpreadBucketing, StateDescription, StateId, StateSpaceConfig};

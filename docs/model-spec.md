@@ -105,14 +105,43 @@ conditions on) and precisely how `G` is estimated (the transition-matrix
 solve) are **Phase 2 and Phase 5 concerns respectively** and are deliberately
 not fixed in this document — see [Open Questions](#open-questions).
 
-## State (stub — filled in during Phase 3)
+## State (V1, as of Phase 3 / Prompt 2)
 
-A `StateId` is an opaque, contiguous, deterministic integer index over some
-discretization of order-book state. Phase 1 only introduces the *type*
-(`StateId(u32)`) as a primitive; the mapping from a `TopOfBook` to a
-`StateId` (bucket counts, bucketing method, dimensionality) is Phase 3's
-concern and will get its own precise specification here when that phase
-starts, not a preliminary guess now.
+V1 state is exactly two dimensions: an **imbalance bucket** and a **spread
+bucket**, packed into one contiguous `StateId`:
+
+```text
+state_id = spread_bucket * num_imbalance_buckets + imbalance_bucket
+```
+
+**Imbalance bucketing** is uniform: `num_buckets` equal-width, half-open
+intervals over `[0.0, 1.0]`, i.e. `[k/N, (k+1)/N)` for bucket `k`, with the
+final bucket closed on the right so `I == 1.0` lands in bucket `N-1` rather
+than the out-of-range index `N`. Lookup is `floor(I * N)` clamped to
+`N - 1` — one multiply, one floor, one clamp, no search.
+
+**Spread bucketing** is explicit, not uniform: a strictly increasing list
+of inclusive tick upper bounds for every bucket except the last, which is
+always unbounded above. `SpreadBucketing::new(vec![1, 2, 4])` produces the
+four buckets `{1}`, `{2}`, `{3,4}`, `{5, 6, ...}` — matching this
+document's earlier `[[1],[2],[3,4],[5,inf]]` example exactly. This shape is
+deliberate: it makes construction reject any bound configuration that
+could leave a "gap" a valid spread might fall through, which in turn makes
+state *encoding* infallible for its spread lookup on any spread `>= 1`
+tick — only a locked/crossed book (spread `< 1` tick, only reachable via a
+non-default `BookValidationPolicy`) can fail encoding, and it fails with a
+named error (`SpreadOutOfRange`), not a panic or a guessed bucket.
+
+Both bucketings' `MicroPriceError::InvalidBucketConfig` construction
+failures happen at configuration time — `ImbalanceBucketing::new(0)` and a
+non-increasing or sub-1-tick `SpreadBucketing` bound list are both rejected
+before any book is ever encoded, per the Phase 3 requirement that a bad
+configuration must fail at construction, not confusingly during
+prediction.
+
+This resolves Open Question #2 below for V1: no order-flow or volatility-
+regime dimension yet, uniform (not quantile/adaptive) imbalance buckets.
+Both remain legitimate later extensions, not implemented here.
 
 ## Transition / price-changing transition (stub — filled in during Phase 5)
 
@@ -150,11 +179,13 @@ implicit:
    a documented rounding rule? Not decided — Phase 2 (core types beyond the
    Phase 1 primitives) needs to resolve this before `microprice()` can return
    a mid-price-derived value with a precise type.
-2. **State dimensionality beyond L1.** Section 5/23 of the project brief
-   allows for spread + imbalance only (V1) versus richer state (order flow,
-   volatility regime, multi-level depth) later. V1's exact bucket scheme
-   (uniform vs. quantile, bucket counts) is a Phase 3 decision, informed by
-   real calibration data this project doesn't have loaded yet.
+2. ~~**State dimensionality beyond L1.**~~ **Resolved for V1** (Phase 3 /
+   Prompt 2 — see the [State](#state-v1-as-of-phase-3--prompt-2) section
+   above): imbalance + spread only, uniform imbalance buckets, explicit
+   spread bucket bounds. Order flow, volatility regime, multi-level depth,
+   and quantile/adaptive imbalance bucketing (which would need real
+   calibration data to fit against, which this project doesn't have loaded
+   yet) all remain legitimate later extensions, not V1 scope.
 3. **Price-changing event definition.** As noted above — mid-price cross vs.
    tick-normalized movement vs. best-quote depletion. Phase 5/6.
 4. **Solver method for `G* = (I - Q)^{-1} G1`.** Direct linear solve vs.

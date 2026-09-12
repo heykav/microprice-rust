@@ -5,16 +5,19 @@ limit-order-book micro-price estimation, in the queue-imbalance / Markov-chain
 tradition associated with Stoikov, Cont, Sirignano and related
 queue-reactive work.
 
-**Status: Phase 1 (repository bootstrap) — not yet a working micro-price
-model.** This README describes what actually exists right now, not the
-project's eventual shape. See [`docs/model-spec.md`](docs/model-spec.md) for
-the precise mathematical definitions this crate implements, and the
-[Roadmap](#roadmap) below for what's next.
+**Status: Phase 3 of the roadmap below (state discretization) — not yet a
+working micro-price model.** This README describes what actually exists
+right now, not the project's eventual shape. See
+[`docs/model-spec.md`](docs/model-spec.md) for the precise mathematical
+definitions this crate implements, and the [Roadmap](#roadmap) below for
+what's next.
 
 ## What exists today
 
 `microprice-core` — the primitive types an L1 order book needs to be
-described unambiguously, with no calibration or estimation logic yet:
+described unambiguously, and the V1 state discretization engine. Still no
+calibration/estimation logic (no transition counting, no solver, no
+trained model) — that starts in `microprice-calibration`, Phase 5+.
 
 - `PriceTicks` — integer-tick price representation (no `f32`/`f64` prices
   internally — see the model spec for why).
@@ -25,8 +28,12 @@ described unambiguously, with no calibration or estimation logic yet:
 - `Imbalance` — queue imbalance `I = Qb / (Qb + Qa)`, with the zero/zero
   degenerate case returning a typed error (`MicroPriceError::EmptyBook`)
   rather than an invented value.
-- `StateId` — an opaque placeholder for the state-discretization work that
-  starts in Phase 3. It is *only* a newtype right now; there is no encoder.
+- `StateId`, `ImbalanceBucketing`, `SpreadBucketing`, `StateSpaceConfig` —
+  the state discretization engine: uniform imbalance buckets (`O(1)`
+  lookup), explicit spread-tick bucket boundaries, packed into one
+  contiguous `StateId`. Measured at ~2.5–2.7 ns per encode on the hardware
+  in [`docs/benchmarking.md`](docs/benchmarking.md) — real numbers, not a
+  target.
 
 Everything else in the workspace (`microprice-calibration`,
 `microprice-data`, `microprice-eval`, `microprice-cli`) exists as an empty
@@ -44,10 +51,17 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo fmt --all --check
 ```
 
-26 tests currently, all in `microprice-core`: valid/crossed/locked books
+47 tests currently, all in `microprice-core`: valid/crossed/locked books
 under every validation policy, one- and both-sided zero depth, extreme
 (near-`u64::MAX`) quantities, overflow detection, spread and mid-price
-arithmetic, and the imbalance degenerate cases.
+arithmetic, the imbalance degenerate cases, and (Phase 3) state-encoding
+unit tests plus `proptest` property tests proving `state_id < state_count`,
+determinism, and in-range bucket indices across randomly generated
+configurations and books.
+
+```bash
+cargo bench -p microprice-core   # see docs/benchmarking.md for the last measured result
+```
 
 ## Design commitments carried from day one
 
@@ -63,8 +77,8 @@ arithmetic, and the imbalance degenerate cases.
 This project is being built in the phased order documented in the project
 brief, not all at once:
 
-1. ~~Mathematical specification + core primitive types~~ (this repository, now)
-2. State discretization engine (imbalance/spread bucketing → `StateId`)
+1. ~~Mathematical specification + core primitive types~~ (Phase 1, done)
+2. ~~State discretization engine (imbalance/spread bucketing → `StateId`)~~ (Phase 3, done)
 3. Synthetic order-book event generator (development dataset)
 4. Streaming transition counting
 5. Price-movement classification
