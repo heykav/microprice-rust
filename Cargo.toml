@@ -16,8 +16,17 @@ repository = "https://github.com/heykav/microprice-rust"
 
 [workspace.dependencies]
 microprice-core = { path = "crates/microprice-core" }
+microprice-calibration = { path = "crates/microprice-calibration" }
+microprice-data = { path = "crates/microprice-data" }
 thiserror = "2"
 proptest = "1"
 criterion = "0.8"
 rand = "0.10"
 rand_chacha = "0.10"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Pinned to 2.0.1, not "3": bincode 3.0.0 on crates.io is a broken
+# placeholder release (its lib.rs is a bare `compile_error!` referencing
+# the XKCD dependency joke, verified by downloading and inspecting the
+# actual crate source before trusting a plain `bincode = "3"` requirement).
+bincode = { version = "=2.0.1", features = ["serde"] }

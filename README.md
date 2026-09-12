@@ -5,19 +5,17 @@ limit-order-book micro-price estimation, in the queue-imbalance / Markov-chain
 tradition associated with Stoikov, Cont, Sirignano and related
 queue-reactive work.
 
-**Status: Phase 4 of the roadmap below (synthetic data) — not yet a
-working micro-price model.** This README describes what actually exists
-right now, not the project's eventual shape. See
-[`docs/model-spec.md`](docs/model-spec.md) for the precise mathematical
-definitions this crate implements, and the [Roadmap](#roadmap) below for
-what's next.
+**Status: Phase 9 of the roadmap below (model artifacts) — a real, working,
+end-to-end calibration → prediction pipeline exists**, though without a
+CLI, real-data ingestion, Python bindings, or visualization yet (Phases
+10-15). See [`docs/model-spec.md`](docs/model-spec.md) for the precise
+mathematical definitions this crate implements, and the
+[Roadmap](#roadmap) below for what's next.
 
 ## What exists today
 
 **`microprice-core`** — the primitive types an L1 order book needs to be
-described unambiguously, plus the V1 state discretization engine. Still no
-calibration/estimation logic (no transition counting, no solver, no
-trained model) — that starts in `microprice-calibration`, Phase 5+.
+described unambiguously, plus the V1 state discretization engine.
 
 - `PriceTicks` — integer-tick price representation (no `f32`/`f64` prices
   internally — see the model spec for why).
@@ -49,10 +47,55 @@ arrival/cancel/market-order/price-move rates, plus an
 direction) that is explicitly disclosed as this generator's own modeling
 choice, not something derived from a cited paper.
 
-Everything else in the workspace (`microprice-calibration`,
-`microprice-eval`, `microprice-cli`) exists as an empty workspace member so
-the crate graph is in place, and is explicitly unimplemented — each
-crate's `lib.rs`/`main.rs` says so.
+**`microprice-calibration`** — the real calibration pipeline: streaming
+transition counting (`TransitionCounter`, event-to-event sampling — see the
+model spec), price-changing-event classification (mid-price crossing, with
+the *signed tick delta* retained, not just up/down/unchanged), probability
+estimation with configurable Laplace smoothing (`estimate`), the
+`G* = G1 + Q @ G*` fixed-point solver (`solve` — never a matrix inverse),
+and `MicroPriceModel`: a serializable (bincode + a human-readable JSON
+metadata sidecar), self-validating-on-load, allocation-free-inference
+trained artifact (`predict`/`predict_batch`).
+
+Correctness story, concretely:
+- The solver is checked against a **hand-derived toy example**
+  (`solver::tests::matches_the_hand_derived_toy_example`): a 2-state chain
+  worked out by hand to `G* = [0.2, 0.225]`.
+- A **known-truth test** (`tests/known_truth.rs`) samples directly from
+  that same toy chain's real probabilities, feeds the samples through the
+  actual `TransitionCounter → estimate → solve` pipeline, and confirms the
+  estimate converges toward the hand-derived truth as sample size grows
+  (measured: |error| ≈ 0.028 at n=1,000 → 0.015 at n=10,000 → 0.004 at
+  n=100,000 — a real, logged result, not an assumption).
+- A real bug was caught and fixed while building this: `TransitionCounter`
+  initially counted *every* observed `state_i → state_j` transition toward
+  `Q`, when `Q` is only defined over the *non-price-changing* subset — a
+  transition that changes price but happens to land back in the same
+  bucket index must not count toward `Q[i][i]`. Caught by a unit test
+  whose hand-computed expected values didn't match, not discovered later.
+- A second real gap: naive chunked parallel counting (build a separate
+  `TransitionCounter` per chunk, merge them) silently drops the one
+  transition spanning each chunk boundary, since a fresh counter has no
+  way to know what preceded its own first event. This is now an explicit,
+  tested, documented property of `merge` (see its doc comment and
+  `transitions::tests::merging_non_overlapping_chunks_loses_exactly_the_boundary_transitions`),
+  with the correct fix (overlap consecutive chunks by one event) also
+  tested directly — not an unverified claim either way.
+
+**`microprice-data`** — a `MarketDataSource` trait, and a deterministic
+synthetic `BookEvent` generator (`SyntheticEventGenerator`) that becomes
+the development dataset for every phase after this one. Explicitly **not**
+a claim of realistic exchange dynamics (see the module docs and
+`docs/model-spec.md`) — its actual job is a fully reproducible (same seed
+→ byte-identical output), configurable stream of always-valid events for
+CI and examples. Configurable arrival/cancel/market-order/price-move
+rates, plus an `imbalance_persistence` parameter (a simple Markov chain on
+price-move direction) that is explicitly disclosed as this generator's own
+modeling choice, not something derived from a cited paper.
+
+Everything else in the workspace (`microprice-eval`, `microprice-cli`)
+exists as an empty workspace member so the crate graph is in place, and is
+explicitly unimplemented — each crate's `lib.rs`/`main.rs` says so.
 
 ## Build and test
 
@@ -65,17 +108,12 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo fmt --all --check
 ```
 
-60 tests currently: 49 in `microprice-core` (valid/crossed/locked books
-under every validation policy, one- and both-sided zero depth, extreme
-(near-`u64::MAX`) quantities, overflow detection, spread and mid-price
-arithmetic, the imbalance degenerate cases, and state-encoding unit tests
-plus `proptest` property tests proving `state_id < state_count`,
-determinism, and in-range bucket indices across randomly generated
-configurations and books) and 11 in `microprice-data` (config validation,
-same-seed determinism, different-seed divergence, strictly-increasing
-timestamps/sequence numbers, the configured spread always being
-maintained, and the both-sides-empty safety net actually firing when
-depletion is forced — tested directly, not just avoided).
+89 tests currently: 49 in `microprice-core`, 11 in `microprice-data`, and
+29 in `microprice-calibration` (27 unit tests across transition counting,
+estimation, smoothing, the solver, and model serialization, plus 2
+known-truth integration tests) — including the hand-derived toy-matrix
+check, the known-truth convergence test, and the chunk-boundary
+merge-correctness tests described above.
 
 ```bash
 cargo bench -p microprice-core   # see docs/benchmarking.md for the last measured result
@@ -98,12 +136,13 @@ brief, not all at once:
 1. ~~Mathematical specification + core primitive types~~ (Phase 1, done)
 2. ~~State discretization engine (imbalance/spread bucketing → `StateId`)~~ (Phase 3, done)
 3. ~~Synthetic order-book event generator (development dataset)~~ (Phase 4, done)
-4. Streaming transition counting
-5. Price-movement classification
-6. Transition-probability estimation (with configurable smoothing)
-7. The micro-price adjustment solver
-8. Model artifact serialization
-9. Allocation-free hot-path inference
+4. ~~Streaming transition counting~~ (Phase 5, done)
+5. ~~Price-movement classification~~ (Phase 6, done — mid-price crossing, signed delta retained)
+6. ~~Transition-probability estimation (with configurable smoothing)~~ (Phase 7, done)
+7. ~~The micro-price adjustment solver~~ (Phase 8, done — fixed-point iteration)
+8. ~~Model artifact serialization~~ (Phase 9, done — bincode + JSON metadata, validated on load)
+9. Allocation-free hot-path inference — `MicroPriceModel::predict` already exists; the
+   dedicated benchmark + any further optimization is still open
 10. Calibration/prediction CLI
 11. Chronological out-of-sample evaluation
 12. Parquet ingestion

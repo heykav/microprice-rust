@@ -143,14 +143,104 @@ This resolves Open Question #2 below for V1: no order-flow or volatility-
 regime dimension yet, uniform (not quantile/adaptive) imbalance buckets.
 Both remain legitimate later extensions, not implemented here.
 
-## Transition / price-changing transition (stub — filled in during Phase 5)
+## Transition / price-changing transition (V1, as of Phase 5)
 
-Deliberately not defined yet. The master project brief lists several
-candidate definitions of a "price-changing" event (mid-price crossing,
-tick-normalized movement, best-quote depletion) and is explicit that they are
-*different models* and must not be blurred together. Fixing one now, before
-Phase 5 needs it, would be exactly the kind of premature, unreviewed
-mathematical commitment this project is trying to avoid.
+V1 uses **event-to-event sampling**: consecutive `BookEvent`s from the same
+symbol, in `sequence` order, form one observed transition `state_i ->
+state_j`. This is the simplest of the sampling modes the project brief
+lists (fixed-time-interval and N-event-horizon sampling are legitimate,
+undecided-for-V1 alternatives — see Open Questions) and is chosen because
+it needs no additional configuration to be well-defined.
+
+**Price-changing event definition: mid-price crossing.** A transition is
+classified by comparing `mid_price_ticks()` at `t` and `t+1`:
+
+```text
+delta = mid_price_ticks(t+1) - mid_price_ticks(t)
+
+delta > 0  ->  UP
+delta < 0  ->  DOWN
+delta == 0 ->  UNCHANGED
+```
+
+This is a specific, deliberate choice among the brief's listed candidates
+(mid-price crossing vs. tick-normalized movement vs. best-quote depletion)
+— **not** an accident of which one was easiest to code. Best-quote
+depletion in particular is a real, arguably more information-rich
+alternative (section 25 of the project brief) that this project is
+choosing *not* to use for V1 classification, because it conflates two
+distinct things (a queue emptying vs. the price actually moving) that
+mid-price crossing keeps cleanly separate: a book can deplete one side to
+zero while `mid_price_ticks()` stays exactly where it was (the other side
+hasn't moved), which V1 correctly calls `UNCHANGED`.
+
+`delta` itself (not just its sign) is retained per-transition and is what
+Phase 7's `G1` estimation actually averages — see the
+[Micro-price estimation](#micro-price-estimation-v1-as-of-phase-7-8) section
+below. This is a deliberate generalization beyond "assume every
+price-changing move is exactly one tick": the synthetic generator (Phase
+4) only ever produces single-tick moves, but the estimator does not
+hard-code that assumption, so it degrades correctly against data with
+multi-tick jumps.
+
+## Micro-price estimation (V1, as of Phase 7/8)
+
+For each state `i`, transition counting (Phase 5) accumulates, over every
+observed `state_i -> state_j` transition:
+
+- `visits[i]`: total number of times state `i` was the *starting* state of
+  a transition.
+- `count[i][j]`: how many of those transitions landed in state `j`.
+- `delta_sum[i]`: the sum of every observed `delta` (signed tick change,
+  see above) over transitions starting at `i`.
+
+From these:
+
+```text
+Q[i][j] = count[i][j] / visits[i]              (for j reached with delta == 0)
+G1[i]   = delta_sum[i] / visits[i]
+```
+
+`Q` is therefore **sub-stochastic** by construction (`sum_j Q[i][j] <= 1`):
+its rows only cover the *non-price-changing* destinations, and the missing
+probability mass is exactly `P(price changed | i)`. `G1[i]` is the
+one-step expected mid-price change from state `i` — an average over *all*
+transitions from `i`, not just the price-changing ones (a transition that
+doesn't change price contributes exactly `0` to the sum, which is the
+mathematically correct way to fold "how often does the price even move
+from here" into a single one-step expectation, rather than needing a
+separate up/down-probability formula).
+
+The full micro-price adjustment solves the recursive relationship the
+project brief specifies:
+
+```text
+G*[i] = G1[i] + sum_j Q[i][j] * G*[j]
+```
+
+i.e. `G* = G1 + Q @ G*`, equivalently `G* = (I - Q)^{-1} G1` — **computed
+via fixed-point iteration** (`G*_0 = G1`, `G*_{k+1} = G1 + Q @ G*_k`, until
+`max|G*_{k+1} - G*_k| < tolerance` or a max-iteration budget is hit),
+never by explicitly inverting `(I - Q)`, per the project brief's explicit
+instruction. Non-convergence within the iteration budget is a named,
+returned error (`SolverError::DidNotConverge`), not a silently-truncated
+result.
+
+`MicroPrice = MidPrice + G*[StateSpaceConfig::encode(book)]`.
+
+## Smoothing (V1, as of Phase 7)
+
+Raw counts can leave `visits[i] == 0` for states never observed during
+calibration (`count[i][j]` and `delta_sum[i]` are then both `0/0`).
+V1 supports **additive (Laplace-style) smoothing**: a configurable
+`alpha >= 0.0` added to every `count[i][j]` before normalizing, and to a
+per-state pseudo-observation before computing `G1`. `alpha == 0.0` (no
+smoothing) is valid and means a zero-observation state is flagged
+(`InsufficientObservations`) rather than silently producing a `G1` of
+exactly `0.0` that looks like "no adjustment," which would be a
+misleading conflation of "never observed" with "observed to have no
+effect." State-merging and minimum-observation-threshold smoothing
+(alternatives the project brief also lists) are not implemented in V1.
 
 ## `TopOfBook` validation
 
@@ -186,13 +276,24 @@ implicit:
    and quantile/adaptive imbalance bucketing (which would need real
    calibration data to fit against, which this project doesn't have loaded
    yet) all remain legitimate later extensions, not V1 scope.
-3. **Price-changing event definition.** As noted above — mid-price cross vs.
-   tick-normalized movement vs. best-quote depletion. Phase 5/6.
-4. **Solver method for `G* = (I - Q)^{-1} G1`.** Direct linear solve vs.
-   iterative/sparse, and the exact numerical-stability guardrails (singular
-   system detection, regularization) — Phase 5, and explicitly not to be
-   decided by "whichever is easiest to write" but by benchmarking against the
-   actual state-space sizes Phase 3 produces.
-5. **Smoothing method for sparse/unobserved transitions** (Laplace smoothing
-   vs. state merging vs. minimum-observation thresholds) — Phase 4/5, and
-   configurable per the project brief rather than a single hardcoded choice.
+3. ~~**Price-changing event definition.**~~ **Resolved for V1** (Phase 5/6 —
+   see [Transition / price-changing transition](#transition--price-changing-transition-v1-as-of-phase-5)):
+   mid-price crossing, with the signed tick delta retained (not just
+   up/down/unchanged), event-to-event sampling (not fixed-time-interval or
+   N-event-horizon — those remain legitimate, unimplemented alternative
+   *models*, not a superset this one subsumes).
+4. ~~**Solver method.**~~ **Resolved for V1** (Phase 8 — see
+   [Micro-price estimation](#micro-price-estimation-v1-as-of-phase-7-8)):
+   fixed-point iteration on `G* = G1 + Q @ G*`, explicitly never a matrix
+   inverse. Convergence tolerance and iteration budget are configurable;
+   non-convergence is a returned error, not a truncated result.
+5. ~~**Smoothing method.**~~ **Resolved for V1** (Phase 7 — see
+   [Smoothing](#smoothing-v1-as-of-phase-7)): additive/Laplace smoothing
+   only, configurable `alpha`. State-merging and minimum-observation-count
+   thresholds are documented-but-unimplemented alternatives, not silently
+   folded into the additive-smoothing option.
+6. **Event sampling mode beyond event-to-event.** Fixed-wall-clock-interval
+   and N-event-horizon sampling (both named in the project brief) are not
+   implemented — `docs/model-spec.md`'s own rule against blurring sampling
+   modes together means adding either later is a new, separate estimator
+   path, not a generalization of the event-to-event one.

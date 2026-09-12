@@ -1,8 +1,23 @@
-//! Transition estimation and the micro-price solver.
+//! Transition estimation, the micro-price solver, and model artifacts.
 //!
-//! **Not yet implemented.** This crate exists as a workspace member per the
-//! Phase 1 bootstrap; its actual content (streaming transition counting,
-//! probability estimation, the `G* = (I - Q)^{-1} G1` solver) is Phases 5-8
-//! of the project roadmap. See `docs/model-spec.md`.
+//! As of Phases 5-9: [`transitions::TransitionCounter`] (streaming
+//! transition counting), [`estimator`] (turns counts into `Q`/`G1` with
+//! configurable smoothing), [`solver`] (the fixed-point `G*` solve), and
+//! [`model::MicroPriceModel`] (the serializable, allocation-free-inference
+//! trained artifact). See `docs/model-spec.md` for the exact math.
 
 #![forbid(unsafe_code)]
+
+pub mod error;
+pub mod estimator;
+pub mod model;
+pub mod smoothing;
+pub mod solver;
+pub mod transitions;
+
+pub use error::CalibrationError;
+pub use estimator::{estimate, EstimatedTransitions};
+pub use model::{MicroPriceEstimate, MicroPriceModel, ModelMetadata, SCHEMA_VERSION};
+pub use smoothing::SmoothingConfig;
+pub use solver::{solve, SolverConfig};
+pub use transitions::TransitionCounter;

@@ -4,7 +4,15 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Transition estimation and micro-price solver for MicroPrice-Rust (not yet implemented - Phases 5-8)."
+description = "Transition estimation, the micro-price solver, and model artifacts for MicroPrice-Rust (Phases 5-9)."
 
 [dependencies]
 microprice-core.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+bincode.workspace = true
+
+[dev-dependencies]
+rand.workspace = true
+rand_chacha.workspace = true
