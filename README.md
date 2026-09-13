@@ -17,6 +17,12 @@ that conclusion. See [`docs/model-spec.md`](docs/model-spec.md) for the
 precise mathematical definitions this crate implements, and the
 [Roadmap](#roadmap) below for the full phase-by-phase history.
 
+**Try it live:** [Micro-Price Terminal](https://claude.ai/code/artifact/7c7d2513-f669-4e48-992b-7a46f5063800)
+— an interactive console over a real trained model (embedded, static —
+see [`web/README.md`](web/README.md) for exactly what that means and
+doesn't). The same file is checked in at [`web/demo.html`](web/demo.html);
+open it directly in a browser, no server required.
+
 ## What exists today
 
 **`microprice-core`** — the primitive types an L1 order book needs to be

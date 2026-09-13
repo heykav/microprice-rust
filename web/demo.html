@@ -1,0 +1,639 @@
+<title>Micro-Price Terminal</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root {
+  --bg: #eef2f4;
+  --surface: #ffffff;
+  --surface-2: #f5f7f8;
+  --border: #d7dfe3;
+  --ink: #10202b;
+  --muted: #57707d;
+  --accent: #b4791f;
+  --bid: #1f7a63;
+  --ask: #b1493a;
+  --bid-soft: rgba(31,122,99,0.14);
+  --ask-soft: rgba(177,73,58,0.14);
+  --heat-neg: #3f6fa8;
+  --heat-pos: #b4791f;
+  --heat-zero: #cfd8dc;
+  --shadow: 0 1px 2px rgba(16,32,43,0.06), 0 8px 24px -12px rgba(16,32,43,0.18);
+  --radius: 10px;
+  --font-display: 'IBM Plex Sans', -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1720;
+    --surface: #162230;
+    --surface-2: #1b2a39;
+    --border: #2a3b4b;
+    --ink: #e7eef3;
+    --muted: #93a8b6;
+    --accent: #e0a83e;
+    --bid: #35b593;
+    --ask: #e0705f;
+    --bid-soft: rgba(53,181,147,0.16);
+    --ask-soft: rgba(224,112,95,0.16);
+    --heat-neg: #5c8fc9;
+    --heat-pos: #e0a83e;
+    --heat-zero: #2a3b4b;
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 12px 28px -14px rgba(0,0,0,0.6);
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1720;
+  --surface: #162230;
+  --surface-2: #1b2a39;
+  --border: #2a3b4b;
+  --ink: #e7eef3;
+  --muted: #93a8b6;
+  --accent: #e0a83e;
+  --bid: #35b593;
+  --ask: #e0705f;
+  --bid-soft: rgba(53,181,147,0.16);
+  --ask-soft: rgba(224,112,95,0.16);
+  --heat-neg: #5c8fc9;
+  --heat-pos: #e0a83e;
+  --heat-zero: #2a3b4b;
+  --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 12px 28px -14px rgba(0,0,0,0.6);
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-display);
+  padding-inline: 20px;
+  padding-block: 28px 48px;
+  max-width: 1180px;
+  margin-inline: auto;
+  line-height: 1.5;
+}
+h1, h2, h3 { text-wrap: balance; margin: 0; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+/* ---------- Header ---------- */
+header.top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 22px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+}
+.brand { display: flex; flex-direction: column; gap: 6px; max-width: 640px; }
+.brand .eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-weight: 600;
+}
+.brand h1 { font-size: 27px; font-weight: 700; letter-spacing: -0.01em; }
+.brand p { margin: 0; color: var(--muted); font-size: 14.5px; }
+.model-badges { display: flex; flex-wrap: wrap; gap: 8px; }
+.badge {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--muted);
+  padding: 5px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.badge b { color: var(--ink); font-weight: 600; }
+
+/* ---------- Layout ---------- */
+.grid {
+  display: grid;
+  grid-template-columns: minmax(0,340px) minmax(0,1fr);
+  gap: 18px;
+  align-items: start;
+}
+@media (max-width: 760px) {
+  .grid { grid-template-columns: 1fr; }
+}
+.stack { display: flex; flex-direction: column; gap: 18px; }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 18px 20px;
+}
+.card > h2 {
+  font-size: 12.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+  font-weight: 600;
+  margin-bottom: 14px;
+}
+
+/* ---------- Order book form ---------- */
+.side-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+.side {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.side.bid { border-color: color-mix(in srgb, var(--bid) 45%, var(--border)); background: var(--bid-soft); }
+.side.ask { border-color: color-mix(in srgb, var(--ask) 45%, var(--border)); background: var(--ask-soft); }
+.side label {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.side.bid label { color: var(--bid); }
+.side.ask label { color: var(--ask); }
+.field { margin-bottom: 8px; }
+.field:last-child { margin-bottom: 0; }
+.field span { display: block; font-size: 10.5px; color: var(--muted); margin-bottom: 3px; }
+input[type=number] {
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--ink);
+}
+input[type=number]:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.preset-btn {
+  font-family: var(--font-display);
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 6px 11px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--ink);
+  cursor: pointer;
+  transition: border-color .12s, background .12s;
+}
+.preset-btn:hover { border-color: var(--accent); }
+.preset-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.derived-line {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12.5px;
+  padding: 7px 0;
+  border-top: 1px dashed var(--border);
+}
+.derived-line:first-of-type { border-top: none; padding-top: 0; }
+.derived-line span:first-child { color: var(--muted); }
+.derived-line span:last-child { font-family: var(--font-mono); font-weight: 600; }
+
+/* ---------- Readout ---------- */
+.readout-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.state-chip {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  padding: 5px 10px;
+  border-radius: 7px;
+}
+.data-badge {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  padding: 4px 9px;
+  border-radius: 999px;
+}
+.data-badge.real { background: var(--bid-soft); color: var(--bid); }
+.data-badge.prior { background: var(--ask-soft); color: var(--ask); }
+
+.readout-rows { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+@media (max-width: 520px) { .readout-rows { grid-template-columns: 1fr; } }
+.readout-tile {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+}
+.readout-tile .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+.readout-tile .value { font-family: var(--font-mono); font-size: 19px; font-weight: 600; }
+.readout-tile.hero { grid-column: 1 / -1; background: color-mix(in srgb, var(--accent) 10%, var(--surface-2)); border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+.readout-tile.hero .value { font-size: 25px; color: var(--accent); }
+.delta { font-family: var(--font-mono); font-size: 13px; margin-left: 6px; }
+.delta.pos { color: var(--ask); }
+.delta.neg { color: var(--bid); }
+
+/* ---------- Charts ---------- */
+.chart-row { display: grid; grid-template-columns: 1.3fr 1fr; gap: 18px; }
+@media (max-width: 760px) { .chart-row { grid-template-columns: 1fr; } }
+svg text { font-family: var(--font-mono); fill: var(--muted); }
+.axis-line { stroke: var(--border); stroke-width: 1; }
+.legend-row { display: flex; gap: 16px; flex-wrap: wrap; font-size: 11.5px; color: var(--muted); margin-top: 10px; }
+.legend-swatch { display: inline-flex; align-items: center; gap: 5px; }
+.legend-swatch i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+
+.heat-cell { cursor: default; }
+.heat-cell.current { stroke: var(--ink); stroke-width: 2px; }
+.heat-cell.no-data { fill-opacity: 0.35; }
+
+footer.model-card {
+  margin-top: 20px;
+  font-size: 13px;
+  color: var(--muted);
+}
+footer.model-card p { margin: 0 0 8px; }
+footer.model-card a { color: var(--accent); }
+footer.model-card code {
+  font-family: var(--font-mono);
+  background: var(--surface-2);
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--ink);
+  font-size: 12px;
+}
+</style>
+
+<header class="top">
+  <div class="brand">
+    <span class="eyebrow">MicroPrice-Rust · interactive console</span>
+    <h1>Micro-Price Terminal</h1>
+    <p>Feed it a top-of-book snapshot; it applies <code class="mono" style="font-size:12.5px">microprice</code> <code class="mono" style="font-size:12.5px">train</code>'s real, calibrated <code class="mono" style="font-size:12.5px">g*</code> grid using the same encoding/lookup formula as <code class="mono" style="font-size:12.5px">predict</code> — a JS reimplementation of that lookup against real trained coefficients, not the Rust binary itself.</p>
+  </div>
+  <div class="model-badges" id="modelBadges"></div>
+</header>
+
+<main class="grid">
+  <div class="stack">
+    <section class="card">
+      <h2>Top of book</h2>
+      <div class="side-row">
+        <div class="side bid">
+          <label>Bid</label>
+          <div class="field"><span>Price (ticks)</span><input type="number" id="bidPrice" value="10000"></div>
+          <div class="field"><span>Quantity</span><input type="number" id="bidQty" value="500" min="0"></div>
+        </div>
+        <div class="side ask">
+          <label>Ask</label>
+          <div class="field"><span>Price (ticks)</span><input type="number" id="askPrice" value="10002"></div>
+          <div class="field"><span>Quantity</span><input type="number" id="askQty" value="500" min="0"></div>
+        </div>
+      </div>
+      <div class="presets" id="presets"></div>
+      <div class="derived-line"><span>Spread</span><span id="derivedSpread">—</span></div>
+      <div class="derived-line"><span>Imbalance  I = Qb∕(Qb+Qa)</span><span id="derivedImbalance">—</span></div>
+    </section>
+  </div>
+
+  <div class="stack">
+    <section class="card">
+      <div class="readout-head">
+        <h2 style="margin:0">Model read-out</h2>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <span class="state-chip" id="stateChip">state —</span>
+          <span class="data-badge" id="dataBadge">—</span>
+        </div>
+      </div>
+      <div class="readout-rows">
+        <div class="readout-tile"><div class="label">Mid</div><div class="value" id="valMid">—</div></div>
+        <div class="readout-tile"><div class="label">Weighted mid</div><div class="value" id="valWeighted">—</div></div>
+        <div class="readout-tile"><div class="label">Adjustment (g*)</div><div class="value" id="valAdj">—</div></div>
+        <div class="readout-tile"><div class="label">Training visits</div><div class="value" id="valVisits">—</div></div>
+        <div class="readout-tile hero"><div class="label">Micro-price</div><div class="value" id="valMicro">— <span class="delta" id="valDelta"></span></div></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>g* across the imbalance axis (current spread bucket)</h2>
+      <svg id="lineChart" viewBox="0 0 620 220" style="width:100%; height:auto; display:block;"></svg>
+    </section>
+  </div>
+</main>
+
+<section class="card" style="margin-top:18px;">
+  <h2>Full calibrated state grid — spread bucket × imbalance bucket</h2>
+  <div class="chart-row">
+    <div>
+      <svg id="heatmap" viewBox="0 0 620 190" style="width:100%; height:auto; display:block;"></svg>
+      <div class="legend-row">
+        <span class="legend-swatch"><i style="background:var(--heat-neg)"></i>g* negative</span>
+        <span class="legend-swatch"><i style="background:var(--heat-zero)"></i>g* ≈ 0</span>
+        <span class="legend-swatch"><i style="background:var(--heat-pos)"></i>g* positive</span>
+        <span class="legend-swatch"><i style="width:12px;height:12px;border:2px solid var(--ink);border-radius:3px;background:transparent"></i>current cell</span>
+        <span class="legend-swatch"><i style="opacity:.35;background:var(--heat-zero)"></i>zero training visits</span>
+      </div>
+    </div>
+    <div>
+      <h2 style="margin-bottom:10px;">Why most of the grid is one flat color</h2>
+      <p style="font-size:13.5px; color:var(--muted); margin:0 0 10px;">
+        MicroPrice-Rust's synthetic training generator holds the spread fixed once configured — real order books don't, but this generator's own documented job is a reproducible development dataset, not a market simulation. So only <b style="color:var(--ink)">one of the four spread buckets</b> (spread = 2 ticks) ever saw a real transition in this training run.
+      </p>
+      <p style="font-size:13.5px; color:var(--muted); margin:0;">
+        Every unvisited state shares an <i>identical</i> g* — a real, correct consequence of Laplace smoothing: with zero observations, every such state gets the same uniform transition row and the same zero-mean prior, so they converge to the same fixed point. Not a bug — verified in <code>docs/benchmarking.md</code>.
+      </p>
+    </div>
+  </div>
+</section>
+
+<footer class="model-card">
+  <p>Trained by the real <code>microprice-cli</code> pipeline: <code id="fTrainCmd"></code></p>
+  <p><span id="fMeta"></span></p>
+  <p>Source: <a href="https://github.com/heykav/microprice-rust" target="_blank" rel="noopener">github.com/heykav/microprice-rust</a> — see <code>microprice-cli</code>'s <code>train</code>/<code>predict</code>/<code>visualize</code> subcommands for the non-interactive equivalents of everything on this page.</p>
+</footer>
+
+<script>
+const MODEL = {"num_imbalance_buckets": 20, "num_spread_buckets": 4, "spread_bucket_bounds_ticks": [1, 2, 4], "smoothing_alpha": 0.5, "training_observations": 499999, "states": [{"state_id": 0, "imbalance_bucket": 0, "spread_bucket": 0, "imbalance_lo": 0, "imbalance_hi": 0.05, "spread_lo": 1, "spread_hi": 1, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 1, "imbalance_bucket": 1, "spread_bucket": 0, "imbalance_lo": 0.05, "imbalance_hi": 0.1, "spread_lo": 1, "spread_hi": 1, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 2, "imbalance_bucket": 2, "spread_bucket": 0, "imbalance_lo": 0.1, "imbalance_hi": 0.15000000000000002, "spread_lo": 1, "spread_hi": 1, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 3, "imbalance_bucket": 3, "spread_bucket": 0, "imbalance_lo": 0.15000000000000002, "imbalance_hi": 0.2, "spread_lo": 1, "spread_hi": 1, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 4, "imbalance_bucket": 4, "spread_bucket": 0, "imbalance_lo": 0.2, "imbalance_hi": 0.25, "spread_lo": 1, "spread_hi": 1, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 5, "imbalance_bucket": 5, "spread_bucket": 0, "imbalance_lo": 0.25, "imbalance_hi": 0.30000000000000004, "spread_lo": 1, "spread_hi": 1, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 6, "imbalance_bucket": 6, "spread_bucket": 0, "imbalance_lo": 0.30000000000000004, "imbalance_hi": 0.35000000000000003, "spread_lo": 1, "spread_hi": 1, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 7, "imbalance_bucket": 7, "spread_bucket": 0, "imbalance_lo": 0.35000000000000003, "imbalance_hi": 0.4, "spread_lo": 1, "spread_hi": 1, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 8, "imbalance_bucket": 8, "spread_bucket": 0, "imbalance_lo": 0.4, "imbalance_hi": 0.45, "spread_lo": 1, "spread_hi": 1, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 9, "imbalance_bucket": 9, "spread_bucket": 0, "imbalance_lo": 0.45, "imbalance_hi": 0.5, "spread_lo": 1, "spread_hi": 1, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 10, "imbalance_bucket": 10, "spread_bucket": 0, "imbalance_lo": 0.5, "imbalance_hi": 0.55, "spread_lo": 1, "spread_hi": 1, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 11, "imbalance_bucket": 11, "spread_bucket": 0, "imbalance_lo": 0.55, "imbalance_hi": 0.6000000000000001, "spread_lo": 1, "spread_hi": 1, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 12, "imbalance_bucket": 12, "spread_bucket": 0, "imbalance_lo": 0.6000000000000001, "imbalance_hi": 0.65, "spread_lo": 1, "spread_hi": 1, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 13, "imbalance_bucket": 13, "spread_bucket": 0, "imbalance_lo": 0.65, "imbalance_hi": 0.7000000000000001, "spread_lo": 1, "spread_hi": 1, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 14, "imbalance_bucket": 14, "spread_bucket": 0, "imbalance_lo": 0.7000000000000001, "imbalance_hi": 0.75, "spread_lo": 1, "spread_hi": 1, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 15, "imbalance_bucket": 15, "spread_bucket": 0, "imbalance_lo": 0.75, "imbalance_hi": 0.8, "spread_lo": 1, "spread_hi": 1, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 16, "imbalance_bucket": 16, "spread_bucket": 0, "imbalance_lo": 0.8, "imbalance_hi": 0.8500000000000001, "spread_lo": 1, "spread_hi": 1, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 17, "imbalance_bucket": 17, "spread_bucket": 0, "imbalance_lo": 0.8500000000000001, "imbalance_hi": 0.9, "spread_lo": 1, "spread_hi": 1, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 18, "imbalance_bucket": 18, "spread_bucket": 0, "imbalance_lo": 0.9, "imbalance_hi": 0.9500000000000001, "spread_lo": 1, "spread_hi": 1, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 19, "imbalance_bucket": 19, "spread_bucket": 0, "imbalance_lo": 0.9500000000000001, "imbalance_hi": 1, "spread_lo": 1, "spread_hi": 1, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 20, "imbalance_bucket": 0, "spread_bucket": 1, "imbalance_lo": 0, "imbalance_hi": 0.05, "spread_lo": 2, "spread_hi": 2, "g_star": -0.09578041206421853, "visits": 139}, {"state_id": 21, "imbalance_bucket": 1, "spread_bucket": 1, "imbalance_lo": 0.05, "imbalance_hi": 0.1, "spread_lo": 2, "spread_hi": 2, "g_star": 0.05172008410608177, "visits": 263}, {"state_id": 22, "imbalance_bucket": 2, "spread_bucket": 1, "imbalance_lo": 0.1, "imbalance_hi": 0.15000000000000002, "spread_lo": 2, "spread_hi": 2, "g_star": 0.025676774512766884, "visits": 888}, {"state_id": 23, "imbalance_bucket": 3, "spread_bucket": 1, "imbalance_lo": 0.15000000000000002, "imbalance_hi": 0.2, "spread_lo": 2, "spread_hi": 2, "g_star": -0.016035588578892233, "visits": 2960}, {"state_id": 24, "imbalance_bucket": 4, "spread_bucket": 1, "imbalance_lo": 0.2, "imbalance_hi": 0.25, "spread_lo": 2, "spread_hi": 2, "g_star": -0.02591759247168857, "visits": 11839}, {"state_id": 25, "imbalance_bucket": 5, "spread_bucket": 1, "imbalance_lo": 0.25, "imbalance_hi": 0.30000000000000004, "spread_lo": 2, "spread_hi": 2, "g_star": -0.011392773613832554, "visits": 23531}, {"state_id": 26, "imbalance_bucket": 6, "spread_bucket": 1, "imbalance_lo": 0.30000000000000004, "imbalance_hi": 0.35000000000000003, "spread_lo": 2, "spread_hi": 2, "g_star": -0.009273734984814104, "visits": 35409}, {"state_id": 27, "imbalance_bucket": 7, "spread_bucket": 1, "imbalance_lo": 0.35000000000000003, "imbalance_hi": 0.4, "spread_lo": 2, "spread_hi": 2, "g_star": -0.020106609037279136, "visits": 45226}, {"state_id": 28, "imbalance_bucket": 8, "spread_bucket": 1, "imbalance_lo": 0.4, "imbalance_hi": 0.45, "spread_lo": 2, "spread_hi": 2, "g_star": -0.01704218952209726, "visits": 57877}, {"state_id": 29, "imbalance_bucket": 9, "spread_bucket": 1, "imbalance_lo": 0.45, "imbalance_hi": 0.5, "spread_lo": 2, "spread_hi": 2, "g_star": -0.010999614608060556, "visits": 70874}, {"state_id": 30, "imbalance_bucket": 10, "spread_bucket": 1, "imbalance_lo": 0.5, "imbalance_hi": 0.55, "spread_lo": 2, "spread_hi": 2, "g_star": -0.008268286242603425, "visits": 72071}, {"state_id": 31, "imbalance_bucket": 11, "spread_bucket": 1, "imbalance_lo": 0.55, "imbalance_hi": 0.6000000000000001, "spread_lo": 2, "spread_hi": 2, "g_star": -0.013673334578321844, "visits": 58228}, {"state_id": 32, "imbalance_bucket": 12, "spread_bucket": 1, "imbalance_lo": 0.6000000000000001, "imbalance_hi": 0.65, "spread_lo": 2, "spread_hi": 2, "g_star": -0.01851087495654358, "visits": 46256}, {"state_id": 33, "imbalance_bucket": 13, "spread_bucket": 1, "imbalance_lo": 0.65, "imbalance_hi": 0.7000000000000001, "spread_lo": 2, "spread_hi": 2, "g_star": -0.020981080769601815, "visits": 35015}, {"state_id": 34, "imbalance_bucket": 14, "spread_bucket": 1, "imbalance_lo": 0.7000000000000001, "imbalance_hi": 0.75, "spread_lo": 2, "spread_hi": 2, "g_star": -0.02843610030385362, "visits": 23835}, {"state_id": 35, "imbalance_bucket": 15, "spread_bucket": 1, "imbalance_lo": 0.75, "imbalance_hi": 0.8, "spread_lo": 2, "spread_hi": 2, "g_star": -0.019947025563764306, "visits": 11590}, {"state_id": 36, "imbalance_bucket": 16, "spread_bucket": 1, "imbalance_lo": 0.8, "imbalance_hi": 0.8500000000000001, "spread_lo": 2, "spread_hi": 2, "g_star": -0.029508503944576527, "visits": 2871}, {"state_id": 37, "imbalance_bucket": 17, "spread_bucket": 1, "imbalance_lo": 0.8500000000000001, "imbalance_hi": 0.9, "spread_lo": 2, "spread_hi": 2, "g_star": -0.005328088480369397, "visits": 710}, {"state_id": 38, "imbalance_bucket": 18, "spread_bucket": 1, "imbalance_lo": 0.9, "imbalance_hi": 0.9500000000000001, "spread_lo": 2, "spread_hi": 2, "g_star": 0.0013797678925861964, "visits": 213}, {"state_id": 39, "imbalance_bucket": 19, "spread_bucket": 1, "imbalance_lo": 0.9500000000000001, "imbalance_hi": 1, "spread_lo": 2, "spread_hi": 2, "g_star": -0.05671052524895295, "visits": 204}, {"state_id": 40, "imbalance_bucket": 0, "spread_bucket": 2, "imbalance_lo": 0, "imbalance_hi": 0.05, "spread_lo": 3, "spread_hi": 4, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 41, "imbalance_bucket": 1, "spread_bucket": 2, "imbalance_lo": 0.05, "imbalance_hi": 0.1, "spread_lo": 3, "spread_hi": 4, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 42, "imbalance_bucket": 2, "spread_bucket": 2, "imbalance_lo": 0.1, "imbalance_hi": 0.15000000000000002, "spread_lo": 3, "spread_hi": 4, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 43, "imbalance_bucket": 3, "spread_bucket": 2, "imbalance_lo": 0.15000000000000002, "imbalance_hi": 0.2, "spread_lo": 3, "spread_hi": 4, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 44, "imbalance_bucket": 4, "spread_bucket": 2, "imbalance_lo": 0.2, "imbalance_hi": 0.25, "spread_lo": 3, "spread_hi": 4, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 45, "imbalance_bucket": 5, "spread_bucket": 2, "imbalance_lo": 0.25, "imbalance_hi": 0.30000000000000004, "spread_lo": 3, "spread_hi": 4, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 46, "imbalance_bucket": 6, "spread_bucket": 2, "imbalance_lo": 0.30000000000000004, "imbalance_hi": 0.35000000000000003, "spread_lo": 3, "spread_hi": 4, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 47, "imbalance_bucket": 7, "spread_bucket": 2, "imbalance_lo": 0.35000000000000003, "imbalance_hi": 0.4, "spread_lo": 3, "spread_hi": 4, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 48, "imbalance_bucket": 8, "spread_bucket": 2, "imbalance_lo": 0.4, "imbalance_hi": 0.45, "spread_lo": 3, "spread_hi": 4, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 49, "imbalance_bucket": 9, "spread_bucket": 2, "imbalance_lo": 0.45, "imbalance_hi": 0.5, "spread_lo": 3, "spread_hi": 4, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 50, "imbalance_bucket": 10, "spread_bucket": 2, "imbalance_lo": 0.5, "imbalance_hi": 0.55, "spread_lo": 3, "spread_hi": 4, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 51, "imbalance_bucket": 11, "spread_bucket": 2, "imbalance_lo": 0.55, "imbalance_hi": 0.6000000000000001, "spread_lo": 3, "spread_hi": 4, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 52, "imbalance_bucket": 12, "spread_bucket": 2, "imbalance_lo": 0.6000000000000001, "imbalance_hi": 0.65, "spread_lo": 3, "spread_hi": 4, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 53, "imbalance_bucket": 13, "spread_bucket": 2, "imbalance_lo": 0.65, "imbalance_hi": 0.7000000000000001, "spread_lo": 3, "spread_hi": 4, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 54, "imbalance_bucket": 14, "spread_bucket": 2, "imbalance_lo": 0.7000000000000001, "imbalance_hi": 0.75, "spread_lo": 3, "spread_hi": 4, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 55, "imbalance_bucket": 15, "spread_bucket": 2, "imbalance_lo": 0.75, "imbalance_hi": 0.8, "spread_lo": 3, "spread_hi": 4, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 56, "imbalance_bucket": 16, "spread_bucket": 2, "imbalance_lo": 0.8, "imbalance_hi": 0.8500000000000001, "spread_lo": 3, "spread_hi": 4, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 57, "imbalance_bucket": 17, "spread_bucket": 2, "imbalance_lo": 0.8500000000000001, "imbalance_hi": 0.9, "spread_lo": 3, "spread_hi": 4, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 58, "imbalance_bucket": 18, "spread_bucket": 2, "imbalance_lo": 0.9, "imbalance_hi": 0.9500000000000001, "spread_lo": 3, "spread_hi": 4, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 59, "imbalance_bucket": 19, "spread_bucket": 2, "imbalance_lo": 0.9500000000000001, "imbalance_hi": 1, "spread_lo": 3, "spread_hi": 4, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 60, "imbalance_bucket": 0, "spread_bucket": 3, "imbalance_lo": 0, "imbalance_hi": 0.05, "spread_lo": 5, "spread_hi": null, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 61, "imbalance_bucket": 1, "spread_bucket": 3, "imbalance_lo": 0.05, "imbalance_hi": 0.1, "spread_lo": 5, "spread_hi": null, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 62, "imbalance_bucket": 2, "spread_bucket": 3, "imbalance_lo": 0.1, "imbalance_hi": 0.15000000000000002, "spread_lo": 5, "spread_hi": null, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 63, "imbalance_bucket": 3, "spread_bucket": 3, "imbalance_lo": 0.15000000000000002, "imbalance_hi": 0.2, "spread_lo": 5, "spread_hi": null, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 64, "imbalance_bucket": 4, "spread_bucket": 3, "imbalance_lo": 0.2, "imbalance_hi": 0.25, "spread_lo": 5, "spread_hi": null, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 65, "imbalance_bucket": 5, "spread_bucket": 3, "imbalance_lo": 0.25, "imbalance_hi": 0.30000000000000004, "spread_lo": 5, "spread_hi": null, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 66, "imbalance_bucket": 6, "spread_bucket": 3, "imbalance_lo": 0.30000000000000004, "imbalance_hi": 0.35000000000000003, "spread_lo": 5, "spread_hi": null, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 67, "imbalance_bucket": 7, "spread_bucket": 3, "imbalance_lo": 0.35000000000000003, "imbalance_hi": 0.4, "spread_lo": 5, "spread_hi": null, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 68, "imbalance_bucket": 8, "spread_bucket": 3, "imbalance_lo": 0.4, "imbalance_hi": 0.45, "spread_lo": 5, "spread_hi": null, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 69, "imbalance_bucket": 9, "spread_bucket": 3, "imbalance_lo": 0.45, "imbalance_hi": 0.5, "spread_lo": 5, "spread_hi": null, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 70, "imbalance_bucket": 10, "spread_bucket": 3, "imbalance_lo": 0.5, "imbalance_hi": 0.55, "spread_lo": 5, "spread_hi": null, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 71, "imbalance_bucket": 11, "spread_bucket": 3, "imbalance_lo": 0.55, "imbalance_hi": 0.6000000000000001, "spread_lo": 5, "spread_hi": null, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 72, "imbalance_bucket": 12, "spread_bucket": 3, "imbalance_lo": 0.6000000000000001, "imbalance_hi": 0.65, "spread_lo": 5, "spread_hi": null, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 73, "imbalance_bucket": 13, "spread_bucket": 3, "imbalance_lo": 0.65, "imbalance_hi": 0.7000000000000001, "spread_lo": 5, "spread_hi": null, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 74, "imbalance_bucket": 14, "spread_bucket": 3, "imbalance_lo": 0.7000000000000001, "imbalance_hi": 0.75, "spread_lo": 5, "spread_hi": null, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 75, "imbalance_bucket": 15, "spread_bucket": 3, "imbalance_lo": 0.75, "imbalance_hi": 0.8, "spread_lo": 5, "spread_hi": null, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 76, "imbalance_bucket": 16, "spread_bucket": 3, "imbalance_lo": 0.8, "imbalance_hi": 0.8500000000000001, "spread_lo": 5, "spread_hi": null, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 77, "imbalance_bucket": 17, "spread_bucket": 3, "imbalance_lo": 0.8500000000000001, "imbalance_hi": 0.9, "spread_lo": 5, "spread_hi": null, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 78, "imbalance_bucket": 18, "spread_bucket": 3, "imbalance_lo": 0.9, "imbalance_hi": 0.9500000000000001, "spread_lo": 5, "spread_hi": null, "g_star": -0.015673128658587464, "visits": 0}, {"state_id": 79, "imbalance_bucket": 19, "spread_bucket": 3, "imbalance_lo": 0.9500000000000001, "imbalance_hi": 1, "spread_lo": 5, "spread_hi": null, "g_star": -0.015673128658587464, "visits": 0}]}
+;
+
+const els = {
+  bidPrice: document.getElementById('bidPrice'),
+  bidQty: document.getElementById('bidQty'),
+  askPrice: document.getElementById('askPrice'),
+  askQty: document.getElementById('askQty'),
+  derivedSpread: document.getElementById('derivedSpread'),
+  derivedImbalance: document.getElementById('derivedImbalance'),
+  stateChip: document.getElementById('stateChip'),
+  dataBadge: document.getElementById('dataBadge'),
+  valMid: document.getElementById('valMid'),
+  valWeighted: document.getElementById('valWeighted'),
+  valAdj: document.getElementById('valAdj'),
+  valVisits: document.getElementById('valVisits'),
+  valMicro: document.getElementById('valMicro'),
+  valDelta: document.getElementById('valDelta'),
+  modelBadges: document.getElementById('modelBadges'),
+  presets: document.getElementById('presets'),
+  lineChart: document.getElementById('lineChart'),
+  heatmap: document.getElementById('heatmap'),
+  fTrainCmd: document.getElementById('fTrainCmd'),
+  fMeta: document.getElementById('fMeta'),
+};
+
+function spreadBucketFor(spread) {
+  const bounds = MODEL.spread_bucket_bounds_ticks;
+  for (let i = 0; i < bounds.length; i++) {
+    if (spread <= bounds[i]) return i;
+  }
+  return bounds.length;
+}
+
+function imbalanceBucketFor(I) {
+  const n = MODEL.num_imbalance_buckets;
+  let raw = Math.floor(I * n);
+  return Math.min(raw, n - 1);
+}
+
+function stateAt(imbalanceBucket, spreadBucket) {
+  const id = spreadBucket * MODEL.num_imbalance_buckets + imbalanceBucket;
+  return MODEL.states[id];
+}
+
+function fmt(n, d = 4) {
+  return Number(n).toFixed(d);
+}
+
+function compute() {
+  const bidPrice = parseFloat(els.bidPrice.value);
+  const bidQty = parseFloat(els.bidQty.value);
+  const askPrice = parseFloat(els.askPrice.value);
+  const askQty = parseFloat(els.askQty.value);
+
+  if ([bidPrice, bidQty, askPrice, askQty].some(v => !Number.isFinite(v))) return null;
+  if (askPrice <= bidPrice) return { error: 'crossed', bidPrice, askPrice };
+  if (bidQty === 0 && askQty === 0) return { error: 'empty' };
+
+  const spread = askPrice - bidPrice;
+  const I = bidQty / (bidQty + askQty);
+  const spreadBucket = spreadBucketFor(spread);
+  const imbalanceBucket = imbalanceBucketFor(I);
+  const state = stateAt(imbalanceBucket, spreadBucket);
+  const mid = (bidPrice + askPrice) / 2;
+  const weighted = askPrice * I + bidPrice * (1 - I);
+  const micro = mid + state.g_star;
+
+  return { bidPrice, bidQty, askPrice, askQty, spread, I, spreadBucket, imbalanceBucket, state, mid, weighted, micro };
+}
+
+function render() {
+  const r = compute();
+  if (!r) return;
+  if (r.error === 'crossed') {
+    els.derivedSpread.textContent = 'crossed — invalid';
+    els.stateChip.textContent = 'book failed validation';
+    els.dataBadge.textContent = '';
+    return;
+  }
+  if (r.error === 'empty') {
+    els.derivedSpread.textContent = '—';
+    els.stateChip.textContent = 'empty book — imbalance undefined';
+    els.dataBadge.textContent = '';
+    return;
+  }
+
+  els.derivedSpread.textContent = `${r.spread} ticks → bucket ${r.spreadBucket}`;
+  els.derivedImbalance.textContent = `${fmt(r.I, 3)} → bucket ${r.imbalanceBucket}/${MODEL.num_imbalance_buckets - 1}`;
+  els.stateChip.textContent = `state ${r.state.state_id}`;
+
+  const hasData = r.state.visits > 0;
+  els.dataBadge.textContent = hasData ? 'real training data' : 'smoothing prior only';
+  els.dataBadge.className = 'data-badge ' + (hasData ? 'real' : 'prior');
+
+  els.valMid.textContent = fmt(r.mid, 2);
+  els.valWeighted.textContent = fmt(r.weighted, 3);
+  els.valAdj.textContent = (r.state.g_star >= 0 ? '+' : '') + fmt(r.state.g_star, 5);
+  els.valVisits.textContent = r.state.visits.toLocaleString();
+  els.valMicro.textContent = fmt(r.micro, 4);
+
+  const deltaFromMid = r.micro - r.mid;
+  els.valDelta.textContent = (deltaFromMid >= 0 ? '+' : '') + fmt(deltaFromMid, 4) + ' vs mid';
+  els.valDelta.className = 'delta ' + (deltaFromMid >= 0 ? 'pos' : 'neg');
+
+  drawLineChart(r);
+  drawHeatmap(r);
+}
+
+function heatColor(gStar, maxAbs) {
+  const t = maxAbs > 0 ? Math.max(-1, Math.min(1, gStar / maxAbs)) : 0;
+  if (Math.abs(gStar) < 1e-9) return getComputedStyle(document.documentElement).getPropertyValue('--heat-zero').trim();
+  const pos = getComputedStyle(document.documentElement).getPropertyValue('--heat-pos').trim();
+  const neg = getComputedStyle(document.documentElement).getPropertyValue('--heat-neg').trim();
+  const zero = getComputedStyle(document.documentElement).getPropertyValue('--heat-zero').trim();
+  const mix = (a, b, f) => {
+    const pa = hexToRgb(a), pb = hexToRgb(b);
+    const r = Math.round(pa.r + (pb.r - pa.r) * f);
+    const g = Math.round(pa.g + (pb.g - pa.g) * f);
+    const bch = Math.round(pa.b + (pb.b - pa.b) * f);
+    return `rgb(${r},${g},${bch})`;
+  };
+  return t >= 0 ? mix(zero, pos, t) : mix(zero, neg, -t);
+}
+function hexToRgb(hex) {
+  hex = hex.replace('#', '');
+  if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
+  const num = parseInt(hex, 16);
+  return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 };
+}
+
+function drawLineChart(r) {
+  const svg = els.lineChart;
+  const W = 620, H = 220, padL = 44, padR = 14, padT = 14, padB = 30;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+
+  const rowStates = MODEL.states.filter(s => s.spread_bucket === r.spreadBucket);
+  const gVals = rowStates.map(s => s.g_star);
+  let yMin = Math.min(...gVals), yMax = Math.max(...gVals);
+  const pad = Math.max((yMax - yMin) * 0.15, 0.002);
+  yMin -= pad; yMax += pad;
+
+  const xAt = (imb) => padL + imb * plotW;
+  const yAt = (g) => padT + (1 - (g - yMin) / (yMax - yMin)) * plotH;
+
+  const ink = getComputedStyle(document.documentElement).getPropertyValue('--ink').trim();
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+  const muted = getComputedStyle(document.documentElement).getPropertyValue('--muted').trim();
+  const border = getComputedStyle(document.documentElement).getPropertyValue('--border').trim();
+
+  let path = '';
+  rowStates.forEach((s, i) => {
+    const midI = (s.imbalance_lo + s.imbalance_hi) / 2;
+    const x = xAt(midI), y = yAt(s.g_star);
+    path += (i === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1) + ' ';
+  });
+
+  const zeroY = yAt(0);
+  const currentMid = (rowStates[r.imbalanceBucket].imbalance_lo + rowStates[r.imbalanceBucket].imbalance_hi) / 2;
+  const curX = xAt(currentMid), curY = yAt(r.state.g_star);
+
+  let ticks = '';
+  for (let t = 0; t <= 1.0001; t += 0.25) {
+    const x = xAt(t);
+    ticks += `<line class="axis-line" x1="${x}" y1="${padT}" x2="${x}" y2="${padT+plotH}" stroke-dasharray="2,3"/>`;
+    ticks += `<text x="${x}" y="${padT+plotH+16}" font-size="10.5" text-anchor="middle">${t.toFixed(2)}</text>`;
+  }
+  const yLabelTop = `<text x="${padL-6}" y="${padT+4}" font-size="10.5" text-anchor="end">${yMax.toFixed(3)}</text>`;
+  const yLabelBot = `<text x="${padL-6}" y="${padT+plotH+4}" font-size="10.5" text-anchor="end">${yMin.toFixed(3)}</text>`;
+
+  svg.innerHTML = `
+    <rect x="${padL}" y="${padT}" width="${plotW}" height="${plotH}" fill="none" stroke="${border}"/>
+    ${ticks}
+    <line x1="${padL}" y1="${zeroY}" x2="${padL+plotW}" y2="${zeroY}" stroke="${muted}" stroke-width="1" stroke-dasharray="1,3"/>
+    <path d="${path}" fill="none" stroke="${accent}" stroke-width="2.5"/>
+    ${rowStates.map(s => {
+      const midI = (s.imbalance_lo + s.imbalance_hi) / 2;
+      return `<circle cx="${xAt(midI)}" cy="${yAt(s.g_star)}" r="2.4" fill="${s.visits > 0 ? accent : border}"/>`;
+    }).join('')}
+    <circle cx="${curX}" cy="${curY}" r="6.5" fill="none" stroke="${ink}" stroke-width="2.5"/>
+    <text x="${padL+plotW/2}" y="${H-4}" font-size="10.5" text-anchor="middle" fill="${muted}">imbalance  I = Qb∕(Qb+Qa)</text>
+    ${yLabelTop}${yLabelBot}
+  `;
+}
+
+function drawHeatmap(r) {
+  const svg = els.heatmap;
+  const W = 620, H = 190, padL = 78, padR = 14, padT = 10, padB = 26;
+  const nImb = MODEL.num_imbalance_buckets, nSpread = MODEL.num_spread_buckets;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const cellW = plotW / nImb, cellH = plotH / nSpread;
+
+  const maxAbs = Math.max(...MODEL.states.map(s => Math.abs(s.g_star)));
+  const border = getComputedStyle(document.documentElement).getPropertyValue('--border').trim();
+  const muted = getComputedStyle(document.documentElement).getPropertyValue('--muted').trim();
+
+  let cells = '';
+  MODEL.states.forEach(s => {
+    const x = padL + s.imbalance_bucket * cellW;
+    const y = padT + s.spread_bucket * cellH;
+    const isCurrent = s.spread_bucket === r.spreadBucket && s.imbalance_bucket === r.imbalanceBucket;
+    const cls = 'heat-cell' + (isCurrent ? ' current' : '') + (s.visits === 0 ? ' no-data' : '');
+    cells += `<rect class="${cls}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${cellW.toFixed(1)}" height="${cellH.toFixed(1)}" fill="${heatColor(s.g_star, maxAbs)}"><title>state ${s.state_id}: g*=${s.g_star.toFixed(5)}, visits=${s.visits}</title></rect>`;
+  });
+
+  let rowLabels = '';
+  for (let sB = 0; sB < nSpread; sB++) {
+    const bounds = MODEL.spread_bucket_bounds_ticks;
+    const lo = sB === 0 ? 1 : bounds[sB - 1] + 1;
+    const hi = bounds[sB];
+    const label = hi !== undefined ? (lo === hi ? `${lo}` : `${lo}–${hi}`) : `${lo}+`;
+    const y = padT + sB * cellH + cellH / 2 + 4;
+    rowLabels += `<text x="${padL - 8}" y="${y}" font-size="10.5" text-anchor="end">${label}t</text>`;
+  }
+  let colLabels = '';
+  [0, 0.25, 0.5, 0.75, 1.0].forEach(t => {
+    const x = padL + t * plotW;
+    colLabels += `<text x="${x}" y="${padT+plotH+16}" font-size="10.5" text-anchor="middle">${t.toFixed(2)}</text>`;
+  });
+
+  svg.innerHTML = `
+    ${cells}
+    <rect x="${padL}" y="${padT}" width="${plotW}" height="${plotH}" fill="none" stroke="${border}"/>
+    ${rowLabels}
+    ${colLabels}
+    <text x="${padL+plotW/2}" y="${H-2}" font-size="10.5" text-anchor="middle" fill="${muted}">imbalance bucket midpoint</text>
+    <text x="14" y="${padT+plotH/2}" font-size="10.5" text-anchor="middle" fill="${muted}" transform="rotate(-90 14 ${padT+plotH/2})">spread (ticks)</text>
+  `;
+}
+
+const PRESETS = [
+  { name: 'Balanced book', bidPrice: 10000, bidQty: 500, askPrice: 10002, askQty: 500 },
+  { name: 'Bid-heavy', bidPrice: 10000, bidQty: 900, askPrice: 10002, askQty: 100 },
+  { name: 'Ask-heavy', bidPrice: 10000, bidQty: 100, askPrice: 10002, askQty: 900 },
+  { name: 'Thin & imbalanced', bidPrice: 10000, bidQty: 950, askPrice: 10001, askQty: 50 },
+  { name: 'Wide spread (untrained)', bidPrice: 9995, bidQty: 500, askPrice: 10005, askQty: 500 },
+];
+
+function buildPresets() {
+  els.presets.innerHTML = '';
+  PRESETS.forEach(p => {
+    const btn = document.createElement('button');
+    btn.className = 'preset-btn';
+    btn.type = 'button';
+    btn.textContent = p.name;
+    btn.addEventListener('click', () => {
+      els.bidPrice.value = p.bidPrice;
+      els.bidQty.value = p.bidQty;
+      els.askPrice.value = p.askPrice;
+      els.askQty.value = p.askQty;
+      render();
+    });
+    els.presets.appendChild(btn);
+  });
+}
+
+function buildHeader() {
+  els.modelBadges.innerHTML = `
+    <span class="badge"><b>${MODEL.training_observations.toLocaleString()}</b> transitions</span>
+    <span class="badge"><b>${MODEL.num_imbalance_buckets}×${MODEL.num_spread_buckets}</b> = ${MODEL.num_imbalance_buckets * MODEL.num_spread_buckets} states</span>
+    <span class="badge">α = <b>${MODEL.smoothing_alpha}</b></span>
+  `;
+  els.fTrainCmd.textContent = `microprice train --num-events 500000 --num-imbalance-buckets 20 --spread-bucket-bounds "1,2,4" --seed 42`;
+  els.fMeta.textContent = `Laplace smoothing α=${MODEL.smoothing_alpha}, ${MODEL.states.filter(s=>s.visits>0).length} of ${MODEL.states.length} states with real training visits.`;
+}
+
+['bidPrice', 'bidQty', 'askPrice', 'askQty'].forEach(id => {
+  document.getElementById(id).addEventListener('input', render);
+});
+
+buildPresets();
+buildHeader();
+render();
+window.addEventListener('resize', render);
+</script>
