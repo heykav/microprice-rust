@@ -1112,7 +1112,9 @@ name = "microprice-calibration"
 version = "0.1.0"
 dependencies = [
  "bincode",
+ "criterion",
  "microprice-core",
+ "microprice-data",
  "rand 0.10.2",
  "rand_chacha 0.10.0",
  "serde",

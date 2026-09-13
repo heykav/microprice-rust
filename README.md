@@ -5,14 +5,17 @@ limit-order-book micro-price estimation, in the queue-imbalance / Markov-chain
 tradition associated with Stoikov, Cont, Sirignano and related
 queue-reactive work.
 
-**Status: Phase 14 of the roadmap below (visualization) — a real,
+**Status: all 15 phases of the roadmap below are done** — a real,
 working, end-to-end train → predict → inspect → benchmark → evaluate →
 visualize pipeline exists, reads/writes real Parquet files, and is usable
-from Python** via `microprice-python` (PyO3), with only profiling-driven
-optimization (Phase 15) left. See
-[`docs/model-spec.md`](docs/model-spec.md) for the precise mathematical
-definitions this crate implements, and the [Roadmap](#roadmap) below for
-what's next.
+from Python via `microprice-python` (PyO3). Phase 15 (profiling-driven
+optimization) concluded, from real measurements, that **no
+SIMD/parallelism/sparse-matrix work is currently justified** at this
+project's intended state-space scale — see
+[`docs/benchmarking.md`](docs/benchmarking.md) for the numbers behind
+that conclusion. See [`docs/model-spec.md`](docs/model-spec.md) for the
+precise mathematical definitions this crate implements, and the
+[Roadmap](#roadmap) below for the full phase-by-phase history.
 
 ## What exists today
 
@@ -208,7 +211,8 @@ spread bucket bounds), and confirming none of them panic — see the commit
 history for the exact commands and output.
 
 ```bash
-cargo bench -p microprice-core   # see docs/benchmarking.md for the last measured result
+cargo bench -p microprice-core          # see docs/benchmarking.md for the last measured result
+cargo bench -p microprice-calibration   # Phase 15's profiling - same doc
 
 # End-to-end, against synthetic data (the CLI's only wired-up data source):
 cargo run -p microprice-cli -- train --output /tmp/model.bin --num-events 500000
@@ -281,7 +285,15 @@ brief, not all at once:
     color were both verified by sampling the rendered PNG's actual pixels,
     not just eyeballing a preview — see the commit history for what that
     caught)
-15. Profiling-driven optimization (SIMD, parallel calibration, sparse matrices)
+15. ~~Profiling-driven optimization (SIMD, parallel calibration, sparse
+    matrices)~~ (Phase 15, done — profiled first, per its own explicit
+    requirement: `crates/microprice-calibration/benches/calibration_pipeline.rs`
+    measured a full 100k-event calibration run at ~1.04 ms total on the
+    hardware in `docs/benchmarking.md`, negligible next to synthetic
+    event generation itself. Conclusion: no SIMD/parallelism/sparse-matrix
+    work is currently justified at V1's state-space scale — not added,
+    since doing so anyway would be exactly the premature optimization
+    this phase's own instructions warn against)
 
 No benchmark numbers, accuracy claims, or example predictions will be added
 to this README until they come from a real, reproducible run against real
