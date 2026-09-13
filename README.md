@@ -309,3 +309,7 @@ why this project treats that as a hard rule rather than a suggestion.
 ## License
 
 MIT.
+
+---
+
+Made with ❤️ in India by [Krishna Anubhav](https://github.com/heykav).
