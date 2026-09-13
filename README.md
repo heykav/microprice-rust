@@ -1,5 +1,8 @@
 # MicroPrice-Rust
 
+[![CI](https://github.com/heykav/microprice-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/heykav/microprice-rust/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 A research-grade, performance-oriented implementation of state-conditioned
 limit-order-book micro-price estimation, in the queue-imbalance / Markov-chain
 tradition associated with Stoikov, Cont, Sirignano and related
