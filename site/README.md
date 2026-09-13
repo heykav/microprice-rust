@@ -1,7 +1,14 @@
-# Interactive demo (`demo.html`)
+# Interactive demo (`index.html`)
 
-A single, self-contained HTML file — open it directly in a browser
-(`open web/demo.html` or double-click it), no server, no build step.
+Deployed at **https://heykav.github.io/microprice-rust/** by
+[`.github/workflows/pages.yml`](../.github/workflows/pages.yml) on every
+push to this directory. Also a single, self-contained HTML file — open it
+directly in a browser (`open site/index.html`), no server, no build step.
+
+This directory is deliberately **not** `docs/`: that directory already
+holds this project's real markdown documentation (`model-spec.md`,
+`benchmarking.md`, ...) and must never be handed to Jekyll/Pages
+processing as if it were a site.
 
 ## What it actually is
 
@@ -15,8 +22,8 @@ Rust binary:
    ```
 2. Its full calibrated `g_star`/`visits` grid (all 80 states, decoded
    imbalance/spread ranges included) was exported to JSON and embedded
-   directly in `demo.html` — there is no fetch, no backend, nothing to
-   deploy.
+   directly in `index.html` — there is no fetch, no backend, nothing to
+   deploy beyond the static file itself.
 3. The page reimplements the *same* state-encoding formula
    `microprice-core::StateSpaceConfig::encode` and `MicroPriceModel::predict`
    use (imbalance bucket via `floor(I * N)` clamped, spread bucket via the
@@ -32,13 +39,21 @@ crate does, and this page can't retrain or evaluate on new data. For
 that, use `microprice train`/`evaluate` (see the repository root
 `README.md`).
 
+## SEO metadata on this page
+
+`index.html`'s `<head>` carries a canonical link, Open Graph + Twitter
+Card tags (image: `og-image.png`, a real `microprice visualize` render,
+not a stock graphic), a `SoftwareSourceCode` JSON-LD block, and a CSP
+matching this project's other public surfaces. `robots.txt` and
+`sitemap.xml` sit alongside `index.html` for the same reason.
+
 ## Regenerating the embedded data
 
 There's no permanent export tool in this repo for this (it was a
 one-off `cargo run --example` script, not committed, to avoid carrying
-demo-specific plumbing in the library crates). To refresh `demo.html`
+demo-specific plumbing in the library crates). To refresh `index.html`
 against a different trained model: load the model with
 `microprice_calibration::MicroPriceModel::load`, walk every `StateId` via
 `model.state_space()?.decode(...)` alongside `model.g_star()`/`model.visits()`,
 serialize the result, and replace the `const MODEL = {...}` block in
-`demo.html`.
+`index.html`.

@@ -1,5 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'" />
 <title>Micro-Price Terminal</title>
+<meta name="description" content="Explore a real, trained queue-imbalance micro-price model live: enter a top-of-book snapshot (bid/ask price and quantity) and see its calibrated adjustment, a g* curve, and the full 80-state calibration grid." />
+<meta name="keywords" content="limit order book, market microstructure, queue imbalance, micro-price, Markov chain, Rust, quantitative finance, high-frequency trading, order book simulator" />
+<meta name="author" content="Krishna Anubhav" />
+<meta name="robots" content="index, follow, max-image-preview:large" />
+<link rel="canonical" href="https://heykav.github.io/microprice-rust/" />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://heykav.github.io/microprice-rust/" />
+<meta property="og:title" content="Micro-Price Terminal" />
+<meta property="og:description" content="Explore a real, trained queue-imbalance micro-price model live: enter a top-of-book snapshot (bid/ask price and quantity) and see its calibrated adjustment, a g* curve, and the full 80-state calibration grid." />
+<meta property="og:image" content="https://heykav.github.io/microprice-rust/og-image.png" />
+<meta property="og:image:width" content="900" />
+<meta property="og:image:height" content="600" />
+<meta property="og:site_name" content="MicroPrice-Rust" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="Micro-Price Terminal" />
+<meta name="twitter:description" content="Explore a real, trained queue-imbalance micro-price model live: enter a top-of-book snapshot (bid/ask price and quantity) and see its calibrated adjustment, a g* curve, and the full 80-state calibration grid." />
+<meta name="twitter:image" content="https://heykav.github.io/microprice-rust/og-image.png" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='84'%3E%F0%9F%93%89%3C/text%3E%3C/svg%3E" />
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"SoftwareSourceCode","name":"MicroPrice-Rust","description":"Explore a real, trained queue-imbalance micro-price model live: enter a top-of-book snapshot (bid/ask price and quantity) and see its calibrated adjustment, a g* curve, and the full 80-state calibration grid.","codeRepository":"https://github.com/heykav/microprice-rust","programmingLanguage":"Rust","author":{"@type":"Person","name":"Krishna Anubhav","url":"https://github.com/heykav"},"license":"https://github.com/heykav/microprice-rust/blob/main/LICENSE"}
+</script>
 <style>
 :root {
   --bg: #eef2f4;
@@ -273,7 +300,8 @@ footer.model-card code {
   font-size: 12px;
 }
 </style>
-
+</head>
+<body>
 <header class="top">
   <div class="brand">
     <span class="eyebrow">MicroPrice-Rust · interactive console</span>
@@ -637,3 +665,5 @@ buildHeader();
 render();
 window.addEventListener('resize', render);
 </script>
+</body>
+</html>
