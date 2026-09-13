@@ -15,10 +15,10 @@ license = "MIT"
 repository = "https://github.com/heykav/microprice-rust"
 
 [workspace.dependencies]
-microprice-core = { path = "crates/microprice-core" }
-microprice-calibration = { path = "crates/microprice-calibration" }
-microprice-data = { path = "crates/microprice-data" }
-microprice-eval = { path = "crates/microprice-eval" }
+microprice-core = { path = "crates/microprice-core", version = "0.1.0" }
+microprice-calibration = { path = "crates/microprice-calibration", version = "0.1.0" }
+microprice-data = { path = "crates/microprice-data", version = "0.1.0" }
+microprice-eval = { path = "crates/microprice-eval", version = "0.1.0" }
 clap = { version = "4", features = ["derive"] }
 # Default features (font-kit-based "ttf" text rendering) require the
 # system fontconfig library on Linux - see the `libfontconfig1-dev` apt
