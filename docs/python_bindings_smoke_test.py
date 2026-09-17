@@ -24,7 +24,7 @@ def main() -> int:
         seed=42,
     )
     meta = model.metadata()
-    assert meta["schema_version"] == 1, meta
+    assert meta["schema_version"] == 2, meta
     assert meta["num_imbalance_buckets"] == 10, meta
     assert meta["spread_bucket_bounds_ticks"] == [1, 2, 4], meta
     assert meta["training_observations"] > 0, meta
@@ -39,8 +39,13 @@ def main() -> int:
         "adjustment_ticks",
         "state_id",
         "state_observations",
+        "p_up",
     ):
         assert key in est, est
+
+    # `p_up` is a real probability or None - never a fabricated value, and
+    # never outside [0, 1] when present.
+    assert est["p_up"] is None or 0.0 <= est["p_up"] <= 1.0, est
 
     with tempfile.TemporaryDirectory() as tmp:
         path = str(Path(tmp) / "model.bin")

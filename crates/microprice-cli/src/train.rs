@@ -177,6 +177,7 @@ pub fn calibrate_model(
     Ok(MicroPriceModel::new(
         metadata,
         g_star,
+        estimated.p_up.clone(),
         estimated.visits.clone(),
     ))
 }

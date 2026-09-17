@@ -56,8 +56,13 @@ impl PyMicroPriceModel {
 
     /// Predicts the micro-price for one top-of-book snapshot, returning a
     /// dict with `mid_ticks`, `weighted_mid_ticks`, `microprice_ticks`,
-    /// `adjustment_ticks`, `state_id`, and `state_observations` - the full
-    /// `MicroPriceEstimate`, not just a bare number.
+    /// `adjustment_ticks`, `state_id`, `state_observations`, and `p_up` -
+    /// the full `MicroPriceEstimate`, not just a bare number.
+    ///
+    /// `p_up` is `None` when training never observed a directional move out
+    /// of this book's state; it is a real probability otherwise. That's
+    /// Python `None`, deliberately not `0.5` - the model does not invent a
+    /// coin flip for a state it has no evidence about.
     fn predict(
         &self,
         py: Python<'_>,
@@ -83,6 +88,7 @@ impl PyMicroPriceModel {
         dict.set_item("adjustment_ticks", est.adjustment_ticks)?;
         dict.set_item("state_id", est.state_id)?;
         dict.set_item("state_observations", est.state_observations)?;
+        dict.set_item("p_up", est.p_up)?;
         Ok(dict.into())
     }
 
@@ -189,7 +195,12 @@ fn train_synthetic(
         smoothing_alpha,
         training_observations: counter.total_observations(),
     };
-    let inner = MicroPriceModel::new(metadata, g_star, estimated.visits.clone());
+    let inner = MicroPriceModel::new(
+        metadata,
+        g_star,
+        estimated.p_up.clone(),
+        estimated.visits.clone(),
+    );
     Ok(PyMicroPriceModel { inner })
 }
 

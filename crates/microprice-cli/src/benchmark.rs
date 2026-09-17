@@ -73,6 +73,7 @@ pub fn run(args: BenchmarkArgs) -> Result<(), Box<dyn std::error::Error>> {
             adjustment_ticks: 0.0,
             state_id: 0,
             state_observations: 0,
+            p_up: None,
         };
         books.len()
     ];

@@ -75,6 +75,9 @@ mod tests {
             state_count: 2,
             q: vec![0.5, 0.0, 0.4, 0.2],
             g1: vec![0.1, 0.1],
+            // The solver never reads `p_up` - it solves for `G*` from
+            // `(Q, G1)` alone - so these fixtures leave it blank.
+            p_up: vec![None; 2],
             visits: vec![1000, 1000],
         }
     }
@@ -95,6 +98,7 @@ mod tests {
             state_count: 3,
             q: vec![0.0; 9],
             g1: vec![0.5, -0.3, 0.0],
+            p_up: vec![None; 3],
             visits: vec![10, 10, 10],
         };
         let g_star = solve(&est, SolverConfig::DEFAULT).unwrap();
@@ -114,6 +118,7 @@ mod tests {
             state_count: 2,
             q: vec![0.9999999, 0.0, 0.0, 0.9999999],
             g1: vec![1.0, 1.0],
+            p_up: vec![None; 2],
             visits: vec![10, 10],
         };
         let config = SolverConfig {
@@ -139,6 +144,7 @@ mod tests {
                 0.3, 0.1, 0.0, 0.0, 0.1, 0.3, 0.1, 0.0, 0.0, 0.1, 0.3, 0.1, 0.0, 0.0, 0.1, 0.3,
             ],
             g1: vec![0.05, -0.02, 0.01, 0.0],
+            p_up: vec![None; 4],
             visits: vec![100, 100, 100, 100],
         };
         let g_star = solve(&est, SolverConfig::DEFAULT).unwrap();

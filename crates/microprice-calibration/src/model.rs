@@ -20,7 +20,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::CalibrationError;
 
-pub const SCHEMA_VERSION: u32 = 1;
+/// Bumped 1 -> 2 when [`MicroPriceModel`] gained its per-state `p_up`
+/// vector. A v1 artifact has no `P(up)` in it to deserialize, and this
+/// type's own contract is that a model file is never silently misread, so
+/// v1 artifacts fail `load` with a clear message rather than loading with
+/// a fabricated or defaulted `p_up`.
+pub const SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ModelMetadata {
@@ -39,6 +44,13 @@ pub struct ModelMetadata {
 pub struct MicroPriceModel {
     metadata: ModelMetadata,
     g_star: Vec<f64>,
+    /// Per-state `P(next move is up | next move is directional)`; `None`
+    /// where training never observed a directional move out of that state.
+    /// Carried alongside `g_star` because it is the one quantity `g_star`
+    /// provably cannot express — `g_star` is a signed tick-magnitude
+    /// expectation, and no rearrangement of a sum of signed deltas
+    /// recovers the up/down split. See `crate::estimator`'s module docs.
+    p_up: Vec<Option<f64>>,
     visits: Vec<u64>,
 }
 
@@ -52,13 +64,25 @@ pub struct MicroPriceEstimate {
     pub adjustment_ticks: f64,
     pub state_id: u32,
     pub state_observations: u64,
+    /// `P(next move is up | next move is directional)` for this book's
+    /// state, or `None` where training never saw a directional move out of
+    /// it. The only genuinely *probabilistic* field here — `adjustment_ticks`
+    /// is a signed tick magnitude and is not one, which is why the Brier
+    /// score has to read this and not that.
+    pub p_up: Option<f64>,
 }
 
 impl MicroPriceModel {
-    pub fn new(metadata: ModelMetadata, g_star: Vec<f64>, visits: Vec<u64>) -> Self {
+    pub fn new(
+        metadata: ModelMetadata,
+        g_star: Vec<f64>,
+        p_up: Vec<Option<f64>>,
+        visits: Vec<u64>,
+    ) -> Self {
         MicroPriceModel {
             metadata,
             g_star,
+            p_up,
             visits,
         }
     }
@@ -73,6 +97,13 @@ impl MicroPriceModel {
     /// indexes `self.g_star` directly.
     pub fn g_star(&self) -> &[f64] {
         &self.g_star
+    }
+
+    /// Per-state directional-up probabilities — for inspection/reporting,
+    /// mirroring [`Self::g_star`]. Not used on the `predict` hot path,
+    /// which indexes `self.p_up` directly.
+    pub fn p_up(&self) -> &[Option<f64>] {
+        &self.p_up
     }
 
     /// Per-state training observation counts — for inspection/reporting.
@@ -117,6 +148,7 @@ impl MicroPriceModel {
             adjustment_ticks,
             state_id: state.0,
             state_observations: self.visits[idx],
+            p_up: self.p_up[idx],
         })
     }
 
@@ -150,6 +182,7 @@ impl MicroPriceModel {
                 adjustment_ticks,
                 state_id: state.0,
                 state_observations: self.visits[idx],
+                p_up: self.p_up[idx],
             };
         }
         Ok(())
@@ -175,10 +208,10 @@ impl MicroPriceModel {
     }
 
     /// Loads and **validates** a model artifact — dimensions must be
-    /// self-consistent, every `g_star`/probability-derived value finite,
-    /// and the schema version recognized, per the project brief's
-    /// explicit "model files must not blindly trust serialized content"
-    /// requirement.
+    /// self-consistent, every `g_star` value finite, every `p_up` a real
+    /// probability in `[0, 1]`, and the schema version recognized, per the
+    /// project brief's explicit "model files must not blindly trust
+    /// serialized content" requirement.
     pub fn load(path: impl AsRef<Path>) -> Result<Self, CalibrationError> {
         let bytes = fs::read(path.as_ref()).map_err(|e| CalibrationError::Io(e.to_string()))?;
         let (model, _): (MicroPriceModel, usize) =
@@ -215,9 +248,27 @@ impl MicroPriceModel {
                 ),
             });
         }
+        if self.p_up.len() != expected {
+            return Err(CalibrationError::InvalidModelArtifact {
+                reason: format!("p_up has {} entries, expected {expected}", self.p_up.len()),
+            });
+        }
         if let Some(bad) = self.g_star.iter().find(|v| !v.is_finite()) {
             return Err(CalibrationError::InvalidModelArtifact {
                 reason: format!("g_star contains a non-finite value: {bad}"),
+            });
+        }
+        // `!v.is_finite()` also catches NaN, which would otherwise slip
+        // through both range comparisons below (every NaN comparison is
+        // false, so neither `< 0.0` nor `> 1.0` would fire).
+        if let Some(bad) = self
+            .p_up
+            .iter()
+            .flatten()
+            .find(|v| !v.is_finite() || **v < 0.0 || **v > 1.0)
+        {
+            return Err(CalibrationError::InvalidModelArtifact {
+                reason: format!("p_up contains a value outside [0, 1]: {bad}"),
             });
         }
         Ok(())
@@ -240,8 +291,26 @@ mod tests {
                 training_observations: 100,
             },
             vec![0.2, 0.225],
+            vec![Some(0.6), None],
             vec![100, 50],
         )
+    }
+
+    /// Saves a deliberately-corrupted `toy_model()` to a unique temp path
+    /// and returns what `load` says about it. Keeps the corruption
+    /// one-line at each call site, so the test names read as the property
+    /// under test.
+    fn load_corrupted(tag: &str, corrupt: impl FnOnce(&mut MicroPriceModel)) -> CalibrationError {
+        let mut model = toy_model();
+        corrupt(&mut model);
+        let dir =
+            std::env::temp_dir().join(format!("microprice-test-{tag}-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("bad.bin");
+        model.save(&path).unwrap();
+        let err = MicroPriceModel::load(&path).unwrap_err();
+        fs::remove_dir_all(&dir).ok();
+        err
     }
 
     fn book(bid: i64, bid_qty: u64, ask: i64, ask_qty: u64) -> TopOfBook {
@@ -264,6 +333,19 @@ mod tests {
         assert_eq!(est.adjustment_ticks, 0.225); // state 1
         assert_eq!(est.microprice_ticks, 10001.225);
         assert_eq!(est.state_observations, 50);
+        // State 1 is the one trained with no directional evidence, so its
+        // probability is absent rather than invented.
+        assert_eq!(est.p_up, None);
+    }
+
+    #[test]
+    fn predict_carries_the_states_directional_probability() {
+        let model = toy_model();
+        // Qb=100, Qa=900 -> I=0.1 -> bucket 0, which does have evidence.
+        let est = model.predict(&book(10000, 100, 10002, 900)).unwrap();
+        assert_eq!(est.state_id, 0);
+        assert_eq!(est.p_up, Some(0.6));
+        assert_eq!(model.p_up(), &[Some(0.6), None]);
     }
 
     #[test]
@@ -292,6 +374,7 @@ mod tests {
                 adjustment_ticks: 0.0,
                 state_id: 0,
                 state_observations: 0,
+                p_up: None,
             };
             3
         ];
@@ -378,5 +461,50 @@ mod tests {
             Err(CalibrationError::InvalidModelArtifact { .. })
         ));
         fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn load_rejects_a_p_up_outside_the_unit_interval() {
+        assert!(matches!(
+            load_corrupted("pup-range", |m| m.p_up[0] = Some(1.5)),
+            CalibrationError::InvalidModelArtifact { .. }
+        ));
+        assert!(matches!(
+            load_corrupted("pup-negative", |m| m.p_up[0] = Some(-0.01)),
+            CalibrationError::InvalidModelArtifact { .. }
+        ));
+    }
+
+    #[test]
+    fn load_rejects_a_nan_p_up() {
+        // NaN is the trap here: every comparison against it is false, so a
+        // naive `v < 0.0 || v > 1.0` range check would wave it straight
+        // through. The finiteness check has to come first.
+        assert!(matches!(
+            load_corrupted("pup-nan", |m| m.p_up[0] = Some(f64::NAN)),
+            CalibrationError::InvalidModelArtifact { .. }
+        ));
+    }
+
+    #[test]
+    fn load_rejects_a_dimension_mismatched_p_up() {
+        assert!(matches!(
+            load_corrupted("pup-dim", |m| m.p_up.push(None)),
+            CalibrationError::InvalidModelArtifact { .. }
+        ));
+    }
+
+    #[test]
+    fn load_rejects_a_model_written_before_p_up_existed() {
+        // A schema_version-1 artifact: correct dimensions, finite g_star,
+        // but no p_up at all. It must be refused, not loaded with a
+        // guess at the directional probability.
+        assert!(matches!(
+            load_corrupted("schema1", |m| {
+                m.metadata.schema_version = 1;
+                m.p_up = vec![];
+            }),
+            CalibrationError::InvalidModelArtifact { .. }
+        ));
     }
 }
