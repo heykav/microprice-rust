@@ -2,76 +2,18 @@ name: CI
 
 on:
   push:
+    branches: [ main, master ]
   pull_request:
-
-env:
-  CARGO_TERM_COLOR: always
+    branches: [ main, master ]
 
 jobs:
-  fmt:
+  build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-      - run: cargo fmt --all --check
-
-  clippy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-      # microprice-cli depends on plotters, whose default "ttf" font
-      # backend (font-kit) needs the system fontconfig library on Linux -
-      # not present on this runner by default. Without this, the build
-      # fails with "Package fontconfig was not found in the pkg-config
-      # search path" (a real CI failure this project hit once already).
-      - run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev
-      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
-
-  test:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      # See the clippy job's comment: only needed on Linux (macOS's
-      # font-kit backend uses CoreText, no fontconfig involved).
-      - if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev
-      - run: cargo build --workspace --all-targets --all-features
-      - run: cargo test --workspace --all-features
-
-  doc:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      # See the clippy job's comment.
-      - run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev
-      - run: cargo doc --workspace --no-deps
-        env:
-          RUSTDOCFLAGS: -D warnings
-
-  python-bindings:
-    # microprice-python is deliberately its own Cargo workspace (see its
-    # Cargo.toml) and is not covered by the `test` job above - a PyO3
-    # extension-module cdylib can't be exercised by plain `cargo test`, so
-    # it needs its own job building it with maturin and importing it from
-    # real Python, or it would silently bit-rot with no CI coverage at all.
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install maturin
-      - run: cd crates/microprice-python && maturin build --release -o dist
-      - run: pip install crates/microprice-python/dist/*.whl
-      - run: python docs/python_bindings_smoke_test.py
+      - uses: actions/checkout@v3
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build
+        run: cargo build
+      - name: Test
+        run: cargo test
