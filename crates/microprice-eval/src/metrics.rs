@@ -4,14 +4,13 @@
 //! signed error (bias), and directional accuracy are all computable
 //! directly from the point predictions `MicroPriceModel::predict` already
 //! produces. A Brier score needs a *probabilistic* prediction of direction
-//! (a `P(price goes up)`), which this model does not produce anywhere —
-//! `TransitionCounter` only ever accumulates a *signed delta sum* per
-//! state, not separate up/down transition counts, so there is no
-//! `P(up)` to score without inventing one from data the calibration
-//! pipeline doesn't collect. Rather than fabricate a Brier score from an
-//! ad-hoc reinterpretation of `G1`/`G*` as a probability (which they are
-//! not — they're signed tick-magnitude expectations), this is left an
-//! explicit, disclosed gap; see `docs/model-spec.md`'s Open Questions.
+//! (a `P(price goes up)`), which `adjustment_ticks`/`G*` cannot supply —
+//! they are signed tick-magnitude expectations, and no rearrangement of a
+//! sum of signed deltas recovers an up/down split. So the model now also
+//! carries `p_up`, counted at the transition level, and [`brier_score`]
+//! scores *that*. It is deliberately not an ad-hoc squashing of `G*` into
+//! `[0, 1]`, which would produce a number shaped like a Brier score
+//! without being one.
 
 /// Mean of `|predicted - actual|` over all pairs. Panics if the slices are
 /// empty or of different lengths — both are caller bugs, not runtime data
@@ -75,6 +74,39 @@ pub fn direction_accuracy(predicted: &[f64], actual: &[f64]) -> (f64, usize) {
     (accuracy, n_directional)
 }
 
+/// Brier score: mean squared error of a *probability* forecast against a
+/// binary outcome encoded as `0.0`/`1.0`. Lower is better — `0.0` is a
+/// perfect forecast, `1.0` is confidently wrong on every observation, and
+/// `0.25` is exactly what an uninformative constant `0.5` scores on any
+/// sample. That last fact is why this is only readable next to a
+/// baseline: `evaluate` reports the climatological reference alongside it.
+///
+/// Panics if the slices are empty, of different lengths, if any probability
+/// falls outside `[0, 1]`, or if any outcome is not exactly `0.0`/`1.0` —
+/// all caller bugs, same contract as the rest of this module.
+pub fn brier_score(probabilities: &[f64], outcomes: &[f64]) -> f64 {
+    assert_eq!(probabilities.len(), outcomes.len());
+    assert!(!probabilities.is_empty());
+    for p in probabilities {
+        assert!(
+            p.is_finite() && (0.0..=1.0).contains(p),
+            "brier_score probabilities must be finite and within [0, 1], got {p}"
+        );
+    }
+    for o in outcomes {
+        assert!(
+            *o == 0.0 || *o == 1.0,
+            "brier_score outcomes must be exactly 0.0 or 1.0, got {o}"
+        );
+    }
+    probabilities
+        .iter()
+        .zip(outcomes.iter())
+        .map(|(p, o)| (p - o) * (p - o))
+        .sum::<f64>()
+        / probabilities.len() as f64
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -118,5 +150,58 @@ mod tests {
         let (acc, n) = direction_accuracy(&predicted, &actual);
         assert_eq!(n, 0);
         assert!(acc.is_nan());
+    }
+
+    #[test]
+    fn brier_score_matches_a_hand_computed_example() {
+        let probabilities = [0.9, 0.1, 0.5];
+        let outcomes = [1.0, 0.0, 0.0];
+        // 0.01 + 0.01 + 0.25 = 0.27 / 3
+        assert!((brier_score(&probabilities, &outcomes) - 0.27 / 3.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn brier_score_of_a_constant_coin_flip_is_always_a_quarter() {
+        // The reference point that makes the number readable: with no
+        // information at all, a 0.5 forecast scores 0.25 whatever the
+        // outcome mix.
+        for outcomes in [
+            vec![1.0, 1.0, 1.0, 1.0],
+            vec![0.0, 0.0, 0.0, 0.0],
+            vec![1.0, 0.0, 1.0, 0.0],
+            vec![1.0, 1.0, 1.0, 0.0],
+        ] {
+            let probabilities = vec![0.5; outcomes.len()];
+            assert!((brier_score(&probabilities, &outcomes) - 0.25).abs() < 1e-12);
+        }
+    }
+
+    #[test]
+    fn brier_score_is_zero_for_a_perfect_forecast_and_one_for_a_confidently_wrong_one() {
+        assert_eq!(brier_score(&[1.0, 0.0, 1.0], &[1.0, 0.0, 1.0]), 0.0);
+        assert_eq!(brier_score(&[1.0, 0.0, 1.0], &[0.0, 1.0, 0.0]), 1.0);
+    }
+
+    #[test]
+    fn brier_score_rewards_a_discriminating_forecast_over_a_flat_one() {
+        let outcomes = [1.0, 1.0, 0.0, 0.0];
+        let discriminating = [0.9, 0.8, 0.2, 0.1];
+        let flat = [0.5, 0.5, 0.5, 0.5];
+        assert!(brier_score(&discriminating, &outcomes) < brier_score(&flat, &outcomes));
+        // And an anti-correlated forecast is worse than knowing nothing.
+        let inverted = [0.1, 0.2, 0.8, 0.9];
+        assert!(brier_score(&inverted, &outcomes) > brier_score(&flat, &outcomes));
+    }
+
+    #[test]
+    #[should_panic(expected = "outcomes must be exactly 0.0 or 1.0")]
+    fn brier_score_rejects_a_non_binary_outcome() {
+        brier_score(&[0.5], &[0.5]);
+    }
+
+    #[test]
+    #[should_panic(expected = "within [0, 1]")]
+    fn brier_score_rejects_an_out_of_range_probability() {
+        brier_score(&[1.4], &[1.0]);
     }
 }

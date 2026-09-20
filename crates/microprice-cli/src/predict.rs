@@ -40,6 +40,13 @@ pub fn run(args: PredictArgs) -> Result<(), Box<dyn std::error::Error>> {
     println!("weighted_mid_ticks:  {:.4}", estimate.weighted_mid_ticks);
     println!("adjustment_ticks:    {:.6}", estimate.adjustment_ticks);
     println!("microprice_ticks:    {:.6}", estimate.microprice_ticks);
+    match estimate.p_up {
+        Some(p) => println!("p_up:                {p:.6}  (P(next move is up | it moves at all))"),
+        None => println!(
+            "p_up:                n/a  (training never saw the price move out of this state, \
+             so there is no directional evidence to give a probability)"
+        ),
+    }
     if estimate.state_observations < 30 {
         println!(
             "warning: this state had only {} training observations - the adjustment \

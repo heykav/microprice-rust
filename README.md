@@ -117,15 +117,24 @@ Correctness story, concretely:
 **never** a random shuffle, which would leak future information into
 training), `evaluate` (runs a calibrated model against a held-out
 chronological stream at a configurable horizon and reports MAE, signed
-bias, and directional accuracy against the `mid`/`weighted_mid` baselines
-the model spec already defines), and `metrics` (the plain error functions
-underneath). A Brier score is **not** implemented here — it needs a
+bias, directional accuracy, and a Brier score against the
+`mid`/`weighted_mid` baselines the model spec already defines), and
+`metrics` (the plain error functions underneath).
+
+The Brier score was for a long time a **disclosed gap** here: it needs a
 probabilistic `P(up)` prediction, and `TransitionCounter` only ever
-accumulates a signed delta *sum* per state, never separate up/down
-transition counts, so there's nothing honest to compute one from without
-inventing data the calibration pipeline doesn't collect. That's recorded
-as a disclosed gap (see the module's own doc comment), not silently
-skipped.
+accumulated a signed delta *sum* per state — and no rearrangement of a sum
+of signed deltas recovers the up/down split (a `+2`/`-1` history and a
+`+1`/`0` history have identical sums). The fix was not to reinterpret `G*`
+as a probability, which would have produced a number shaped like a Brier
+score without being one; it was to make the counter **count** up and down
+moves separately, so the probability is estimated from data that was
+actually collected. `evaluate` reports the score next to a climatological
+baseline (predict the split's own up-rate, constantly), because a Brier
+score on its own says nothing about whether a forecast carries
+information — the same reason `microprice_mae` is never reported without
+`mid_mae`. On the synthetic generator the honest result is *no* skill
+(≈ `-0.0006`), and the CLI says so rather than dressing it up.
 
 **`microprice-cli`** — the `microprice` binary: `train` (generate synthetic
 data, run the full counting → estimation → solving pipeline, save a model
@@ -277,8 +286,7 @@ brief, not all at once:
 11. ~~Chronological out-of-sample evaluation~~ (Phase 11, done —
     `microprice-eval`'s `chronological_split`/`evaluate`, wired into
     `microprice evaluate`; see above for a real measured result and its
-    honest interpretation, and the module docs for why a Brier score is a
-    disclosed gap rather than a fabricated one)
+    honest interpretation)
 12. ~~Parquet ingestion~~ (Phase 12, done — `microprice-data`'s
     `parquet-ingestion` feature; a 250-row write→read round trip and a
     hand-built-bad-bytes row-validation test both pass, feature off by

@@ -209,7 +209,20 @@ transitions from `i`, not just the price-changing ones (a transition that
 doesn't change price contributes exactly `0` to the sum, which is the
 mathematically correct way to fold "how often does the price even move
 from here" into a single one-step expectation, rather than needing a
-separate up/down-probability formula).
+separate up/down-probability formula for `G1` itself).
+
+That last clause is worth stating precisely, because `P(up)` *does* now
+exist in the system — and it is **not** derivable from `G1`. `G1` is a
+signed tick-magnitude expectation, while
+`P(next move is up | next move is directional)` is a separate quantity: no
+rearrangement of a sum of signed deltas recovers it, since a `+2`/`-1`
+history and a `+1`/`0` history have the same `delta_sum` and different
+up/down splits. So `TransitionCounter` counts up and down moves
+separately, `estimate` smooths them into a per-state `p_up` (Laplace, with
+a prior of exactly `0.5` — the probability analogue of `G1`'s zero-mean
+prior), and the model carries `p_up` alongside `G*` so the Brier score has
+something honest to score. **It never enters the `G*` recursion above**,
+and adding it changed no `G*` value.
 
 The full micro-price adjustment solves the recursive relationship the
 project brief specifies:

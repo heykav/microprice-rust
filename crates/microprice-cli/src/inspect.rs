@@ -29,6 +29,7 @@ pub fn run(args: InspectArgs) -> Result<(), Box<dyn std::error::Error>> {
     println!("training_observations:      {}", meta.training_observations);
 
     let g_star = model.g_star();
+    let p_up = model.p_up();
     let visits = model.visits();
     let state_count = g_star.len();
 
@@ -41,6 +42,7 @@ pub fn run(args: InspectArgs) -> Result<(), Box<dyn std::error::Error>> {
     let zero_visit_states = visits.iter().filter(|&&v| v == 0).count();
     let min_visits = visits.iter().min().copied().unwrap_or(0);
     let max_visits = visits.iter().max().copied().unwrap_or(0);
+    let states_with_p_up = p_up.iter().filter(|p| p.is_some()).count();
 
     println!();
     println!("state_count:                {state_count}");
@@ -51,6 +53,31 @@ pub fn run(args: InspectArgs) -> Result<(), Box<dyn std::error::Error>> {
         println!(
             "  (a zero-visit state's g_star came entirely from smoothing's prior, \
              not real data - see docs/model-spec.md's Smoothing section)"
+        );
+    }
+    println!("states with a P(up):        {states_with_p_up} / {state_count}");
+    if states_with_p_up > 0 {
+        let directional: Vec<f64> = p_up.iter().filter_map(|p| *p).collect();
+        let mean_p = directional.iter().sum::<f64>() / directional.len() as f64;
+        let n_above_half = directional.iter().filter(|&&p| p > 0.5).count();
+        println!(
+            "  P(up) range:              [{:.6}, {:.6}], mean {mean_p:.6}",
+            directional.iter().copied().fold(f64::INFINITY, f64::min),
+            directional
+                .iter()
+                .copied()
+                .fold(f64::NEG_INFINITY, f64::max)
+        );
+        println!(
+            "  states leaning up:        {n_above_half} / {} (P(up) > 0.5)",
+            directional.len()
+        );
+    }
+    if states_with_p_up < state_count {
+        println!(
+            "  ({} state(s) have no P(up): training never saw the price move out of them, so \
+             there is no directional evidence to give a probability for)",
+            state_count - states_with_p_up
         );
     }
 

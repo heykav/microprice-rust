@@ -1,7 +1,8 @@
 //! Streaming transition counting: turns a chronological `BookEvent` stream
-//! into per-state visit counts, per-(state,state) transition counts, and
-//! per-state signed price-delta sums — the raw material Phase 7's
-//! estimator turns into `Q` and `G1`.
+//! into per-state visit counts, per-(state,state) transition counts,
+//! per-state signed price-delta sums, and the per-state up/down move counts
+//! a genuine `P(price goes up)` is computed from — the raw material
+//! Phase 7's estimator turns into `Q` and `G1`.
 //!
 //! Uses **event-to-event sampling** (see `docs/model-spec.md`): consecutive
 //! events, in `sequence` order, form one observed transition. Dense
@@ -32,6 +33,19 @@ pub struct TransitionCounter {
     /// `delta_sum[i]`: sum of every observed signed mid-price tick delta
     /// over transitions starting at `i`.
     delta_sum: Vec<i64>,
+    /// `up_moves[i]` / `down_moves[i]`: how many transitions starting at `i`
+    /// moved the mid-price **up** / **down** by at least one tick.
+    ///
+    /// `delta_sum` cannot recover this split — `+2, -1` and `+1, 0` sum
+    /// alike — which is precisely why a state's `P(price goes up)` was not
+    /// computable from this struct before, and why the Brier score was a
+    /// disclosed gap rather than a silently wrong number. See
+    /// [`TransitionCounter::p_up`].
+    ///
+    /// `up_moves + down_moves <= visits`: the remainder are the
+    /// price-unchanged transitions that populate `counts`.
+    up_moves: Vec<u64>,
+    down_moves: Vec<u64>,
     last_sequence: Option<u64>,
     /// The `(state, mid_ticks)` of the most recently observed *encodable*
     /// event, carried **across** calls to [`TransitionCounter::observe_events`]
@@ -52,6 +66,8 @@ impl TransitionCounter {
             visits: vec![0; n],
             counts: vec![0; n * n],
             delta_sum: vec![0; n],
+            up_moves: vec![0; n],
+            down_moves: vec![0; n],
             last_sequence: None,
             last_observed: None,
         }
@@ -71,6 +87,42 @@ impl TransitionCounter {
 
     pub fn delta_sum(&self, state: StateId) -> i64 {
         self.delta_sum[state.0 as usize]
+    }
+
+    /// How many transitions starting at `state` moved the mid-price up.
+    pub fn up_moves(&self, state: StateId) -> u64 {
+        self.up_moves[state.0 as usize]
+    }
+
+    /// How many transitions starting at `state` moved the mid-price down.
+    pub fn down_moves(&self, state: StateId) -> u64 {
+        self.down_moves[state.0 as usize]
+    }
+
+    /// The empirical probability that the mid-price moves **up** on a
+    /// transition out of `state`, conditioned on the transitions that
+    /// actually moved the price.
+    ///
+    /// Price-unchanged transitions are excluded from the denominator rather
+    /// than counted as "not an up move", matching
+    /// `microprice_eval::direction_accuracy`, which likewise excludes
+    /// zero-move pairs instead of scoring them as free correct guesses.
+    ///
+    /// `None` when no directional move has ever been observed from `state` —
+    /// an undefined probability, reported as absent rather than invented, in
+    /// keeping with `docs/model-spec.md`'s stance on undefined cases.
+    ///
+    /// This is the honest source of the `P(up)` the Brier score needs. It is
+    /// deliberately **not** derived from `G*`, which is a signed
+    /// tick-magnitude expectation, not a probability.
+    pub fn p_up(&self, state: StateId) -> Option<f64> {
+        let i = state.0 as usize;
+        let directional = self.up_moves[i] + self.down_moves[i];
+        if directional == 0 {
+            None
+        } else {
+            Some(self.up_moves[i] as f64 / directional as f64)
+        }
     }
 
     /// Total observed transitions across every starting state.
@@ -93,13 +145,21 @@ impl TransitionCounter {
     /// case must **not** count toward `Q[from][from]` - `visits` and
     /// `delta_sum` still update unconditionally, since those track *every*
     /// observed transition regardless of whether it changed price.
+    ///
+    /// `delta_ticks`'s sign additionally drives `up_moves`/`down_moves`,
+    /// which together with `visits` are the only things `p_up` reads.
     pub fn record(&mut self, from: StateId, to: StateId, delta_ticks: i64) {
         let n = self.state_count as usize;
-        self.visits[from.0 as usize] += 1;
+        let from_idx = from.0 as usize;
+        self.visits[from_idx] += 1;
         if delta_ticks == 0 {
-            self.counts[from.0 as usize * n + to.0 as usize] += 1;
+            self.counts[from_idx * n + to.0 as usize] += 1;
+        } else if delta_ticks > 0 {
+            self.up_moves[from_idx] += 1;
+        } else {
+            self.down_moves[from_idx] += 1;
         }
-        self.delta_sum[from.0 as usize] += delta_ticks;
+        self.delta_sum[from_idx] += delta_ticks;
     }
 
     /// Encodes and records every consecutive pair in a chronological
@@ -176,6 +236,8 @@ impl TransitionCounter {
         for i in 0..self.visits.len() {
             self.visits[i] += other.visits[i];
             self.delta_sum[i] += other.delta_sum[i];
+            self.up_moves[i] += other.up_moves[i];
+            self.down_moves[i] += other.down_moves[i];
         }
         for i in 0..self.counts.len() {
             self.counts[i] += other.counts[i];
@@ -314,6 +376,8 @@ mod tests {
         assert_eq!(serial.visits, sequential.visits);
         assert_eq!(serial.counts, sequential.counts);
         assert_eq!(serial.delta_sum, sequential.delta_sum);
+        assert_eq!(serial.up_moves, sequential.up_moves);
+        assert_eq!(serial.down_moves, sequential.down_moves);
     }
 
     #[test]
@@ -346,6 +410,8 @@ mod tests {
         assert_eq!(serial.visits, chunk_a.visits);
         assert_eq!(serial.counts, chunk_a.counts);
         assert_eq!(serial.delta_sum, chunk_a.delta_sum);
+        assert_eq!(serial.up_moves, chunk_a.up_moves);
+        assert_eq!(serial.down_moves, chunk_a.down_moves);
     }
 
     #[test]
@@ -389,5 +455,70 @@ mod tests {
             a.merge(&b),
             Err(CalibrationError::StateCountMismatch { a: 4, b: 8 })
         );
+    }
+
+    #[test]
+    fn record_splits_directional_moves_from_flat_ones() {
+        let mut counter = TransitionCounter::new(4);
+        counter.record(StateId(0), StateId(1), 0); // flat
+        counter.record(StateId(0), StateId(1), 2); // up
+        counter.record(StateId(0), StateId(1), -1); // down
+        counter.record(StateId(0), StateId(1), 3); // up
+
+        assert_eq!(counter.visits(StateId(0)), 4);
+        assert_eq!(counter.up_moves(StateId(0)), 2);
+        assert_eq!(counter.down_moves(StateId(0)), 1);
+        // The flat transition is counted in neither directional bucket, so
+        // the directional counts sum to strictly less than visits.
+        assert_eq!(
+            counter.up_moves(StateId(0)) + counter.down_moves(StateId(0)),
+            3
+        );
+        assert_eq!(counter.delta_sum(StateId(0)), 4); // 0 + 2 - 1 + 3
+    }
+
+    #[test]
+    fn p_up_is_none_when_no_directional_move_was_ever_observed() {
+        let mut counter = TransitionCounter::new(4);
+        counter.record(StateId(0), StateId(1), 0);
+        counter.record(StateId(0), StateId(1), 0);
+        assert_eq!(counter.p_up(StateId(0)), None);
+        // A state never visited at all is equally undefined.
+        assert_eq!(counter.p_up(StateId(3)), None);
+    }
+
+    #[test]
+    fn p_up_excludes_flat_transitions_from_its_denominator() {
+        let mut counter = TransitionCounter::new(4);
+        counter.record(StateId(0), StateId(1), 1); // up
+        counter.record(StateId(0), StateId(1), 1); // up
+        counter.record(StateId(0), StateId(1), -1); // down
+        counter.record(StateId(0), StateId(1), 0); // flat -> must not dilute
+        assert_eq!(counter.p_up(StateId(0)), Some(2.0 / 3.0));
+    }
+
+    #[test]
+    fn p_up_is_per_state_and_reaches_its_bounds() {
+        let mut counter = TransitionCounter::new(4);
+        counter.record(StateId(0), StateId(1), 1); // state 0: always up
+        counter.record(StateId(1), StateId(0), -1); // state 1: always down
+
+        assert_eq!(counter.p_up(StateId(0)), Some(1.0));
+        assert_eq!(counter.p_up(StateId(1)), Some(0.0));
+        assert_eq!(counter.p_up(StateId(2)), None);
+    }
+
+    #[test]
+    fn merge_adds_up_and_down_counts_so_p_up_survives_chunking() {
+        let mut a = TransitionCounter::new(2);
+        let mut b = TransitionCounter::new(2);
+        a.record(StateId(0), StateId(1), 1);
+        b.record(StateId(0), StateId(1), 1);
+        b.record(StateId(0), StateId(1), -1);
+
+        a.merge(&b).unwrap();
+        assert_eq!(a.up_moves(StateId(0)), 2);
+        assert_eq!(a.down_moves(StateId(0)), 1);
+        assert_eq!(a.p_up(StateId(0)), Some(2.0 / 3.0));
     }
 }

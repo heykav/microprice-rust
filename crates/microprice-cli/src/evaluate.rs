@@ -111,6 +111,24 @@ pub fn run(args: EvaluateArgs) -> Result<(), Box<dyn std::error::Error>> {
     } else {
         println!("direction acc.   no directional (actual != mid) observations in this test split");
     }
+    if report.n_probabilistic > 0 {
+        println!(
+            "Brier score      microprice={:.4}  climatology={:.4}  skill={:+.4}  ({} probabilistic observations)",
+            report.microprice_brier,
+            report.brier_baseline,
+            report.brier_skill_score,
+            report.n_probabilistic
+        );
+        println!(
+            "                 (lower is better; 0.25 = an uninformative coin flip; skill > 0 means \
+             the model's P(up) beat always predicting this split's own up-rate)"
+        );
+    } else {
+        println!(
+            "Brier score      none computable: no test observation both landed in a state with \
+             directional training evidence and actually moved"
+        );
+    }
     println!();
     if report.microprice_mae < report.mid_mae {
         println!(

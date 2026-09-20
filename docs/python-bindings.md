@@ -60,12 +60,19 @@ Measured on this machine, this real run (same seed/config as the CLI's own
 is what both surfaces call:
 
 ```text
-metadata: {'schema_version': 1, 'symbol_id': 1, 'num_imbalance_buckets': 10,
+metadata: {'schema_version': 2, 'symbol_id': 1, 'num_imbalance_buckets': 10,
            'spread_bucket_bounds_ticks': [1, 2, 4], 'smoothing_alpha': 0.5,
            'training_observations': 199999}
-predict (balanced):   adjustment_ticks=-0.020089..., microprice_ticks=10000.9799...
-predict (imbalanced): adjustment_ticks=-0.079776..., microprice_ticks=10000.9202...
+predict (balanced):   adjustment_ticks=-0.020089..., microprice_ticks=10000.9799..., p_up=0.485606...
+predict (imbalanced): adjustment_ticks=-0.079776..., microprice_ticks=10000.9202..., p_up=0.431818...
 ```
+
+The `adjustment_ticks`/`microprice_ticks` values here are **byte-identical**
+to the ones this doc reported before `p_up` existed (schema version 1 →
+2). That is the intended, checkable consequence of `p_up` living outside
+the `G*` recursion: the probability is estimated and carried alongside
+`G*`, and perturbs it not at all — see
+[`model-spec.md`](model-spec.md#micro-price-estimation-v1-as-of-phase-7-8).
 
 Error paths were verified too, not just the happy path: a crossed book
 passed to `predict` raises a Python `ValueError` carrying the exact same
