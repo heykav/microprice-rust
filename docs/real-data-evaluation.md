@@ -24,6 +24,27 @@ shaped by what it turns out to be.
 3. Downloaded vendor data is never committed (licensing). Only the
    generated report and the exact command are.
 
+## Amendments made before any real-data result exists
+
+Dated 2026-09-29. **No real-data result existed when these were made, and
+none was looked at**; the project has still never seen real market data.
+The default predictors, the pre-specified configuration table, the split, the
+primary comparison and the decision rule above are **unchanged**. Everything
+listed here is an additional, separately labelled option that is off by
+default and is not used by the pre-registered run.
+
+1. **`--symmetrize` (exploratory).** Optional imbalance-mirror pooling in
+   calibration (`docs/model-spec.md`, "Imbalance symmetrization"). A report
+   produced with it says so in its "Split and model" section and prefixes its
+   decision section with a warning that the verdicts are exploratory and are
+   not the pre-registered result. Should it be run, all such runs are
+   reported alongside the pre-registered one, per commitment 2.
+2. **Model diagnostics in the report.** The report now prints the
+   antisymmetry residual and the martingale diagnostic
+   (`docs/model-spec.md`, "Martingale diagnostic") of the calibrated model on
+   the *training* split. They are descriptive, use no test data and take no
+   part in the decision rule.
+
 ## Data
 
 ### Binance USD-M futures `bookTicker` (public, no credentials)

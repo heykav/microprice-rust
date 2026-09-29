@@ -18,8 +18,9 @@ use std::time::Instant;
 use clap::Args;
 
 use microprice_calibration::{
-    estimate, solve, CalibrationError, MicroPriceModel, ModelMetadata, SmoothingConfig,
-    SolverConfig, TransitionCounter, SCHEMA_VERSION,
+    antisymmetry_residual, estimate, martingale_diagnostic, solve, CalibrationError,
+    MartingaleDiagnostic, MicroPriceModel, ModelMetadata, SmoothingConfig, SolverConfig,
+    TransitionCounter, SCHEMA_VERSION,
 };
 use microprice_core::{BookEvent, StateId, StateSpaceConfig, SymbolId};
 use microprice_data::{MarketDataSource, SyntheticConfig, SyntheticEventGenerator};
@@ -60,6 +61,14 @@ pub struct CommonTrainArgs {
     /// this or --num-events if training reports unvisited states.
     #[arg(long, default_value_t = 0.5)]
     pub smoothing_alpha: f64,
+
+    /// Impose the imbalance mirror symmetry during calibration (I <-> 1-I
+    /// with price moves negated, spread buckets unchanged): every observed
+    /// transition is also counted as its mirror image, which makes G*
+    /// exactly antisymmetric. Off by default. See docs/model-spec.md,
+    /// "Imbalance symmetrization".
+    #[arg(long)]
+    pub symmetrize: bool,
 
     /// RNG seed for the synthetic data generator (same seed -> byte
     /// identical training data, see microprice-data's module docs).
@@ -121,6 +130,17 @@ pub fn parse_spread_bounds(s: &str) -> Result<Vec<i64>, Box<dyn std::error::Erro
         .collect()
 }
 
+/// A calibrated model plus the numerical diagnostics computed while
+/// building it (all lengths in model units).
+pub struct Calibrated {
+    pub model: MicroPriceModel,
+    /// Martingale / fixed-point diagnostic of the solved `G*`.
+    pub martingale: MartingaleDiagnostic,
+    /// `max_s |G*[s] + G*[mirror(s)]|`; ~0 iff calibrated with symmetrization.
+    pub antisymmetry_residual: f64,
+    pub symmetrized: bool,
+}
+
 /// Runs the shared counting -> estimation -> solving pipeline against
 /// `events` and returns the resulting model. Prints diagnostics (unvisited
 /// states, etc.) to stdout, since both `train` and `evaluate` want them.
@@ -131,7 +151,8 @@ pub fn calibrate_model(
     num_imbalance_buckets: u32,
     spread_bounds: Vec<i64>,
     smoothing_alpha: f64,
-) -> Result<MicroPriceModel, CalibrationError> {
+    symmetrize: bool,
+) -> Result<Calibrated, CalibrationError> {
     let mut counter = TransitionCounter::new(state_space.state_count());
     counter.observe_events(state_space, events)?;
     println!(
@@ -163,8 +184,19 @@ pub fn calibrate_model(
     }
 
     let smoothing = SmoothingConfig::new(smoothing_alpha)?;
+    // Symmetrization pools each transition with its mirror image; the
+    // observation count recorded in the metadata stays the number of REAL
+    // transitions.
+    let real_observations = counter.total_observations();
+    let counter = if symmetrize {
+        counter.symmetrized(num_imbalance_buckets)?
+    } else {
+        counter
+    };
     let estimated = estimate(&counter, smoothing)?;
     let g_star = solve(&estimated, SolverConfig::DEFAULT)?;
+    let martingale = martingale_diagnostic(&estimated, &g_star)?;
+    let antisymmetry = antisymmetry_residual(&g_star, num_imbalance_buckets)?;
 
     let metadata = ModelMetadata {
         schema_version: SCHEMA_VERSION,
@@ -172,14 +204,37 @@ pub fn calibrate_model(
         num_imbalance_buckets,
         spread_bucket_bounds_ticks: spread_bounds,
         smoothing_alpha,
-        training_observations: counter.total_observations(),
+        training_observations: real_observations,
     };
-    Ok(MicroPriceModel::new(
+    let model = MicroPriceModel::new(
         metadata,
         g_star,
         estimated.p_up.clone(),
         estimated.visits.clone(),
-    ))
+    );
+    Ok(Calibrated {
+        model,
+        martingale,
+        antisymmetry_residual: antisymmetry,
+        symmetrized: symmetrize,
+    })
+}
+
+/// Prints the calibration diagnostics in model units (`unit` labels them).
+pub fn print_diagnostics(c: &Calibrated, unit: &str, scale: f64) {
+    println!(
+        "Symmetrized calibration: {} (antisymmetry residual max|G*[s]+G*[mirror(s)]| = {:.3e} {unit})",
+        if c.symmetrized { "yes" } else { "no" },
+        c.antisymmetry_residual * scale
+    );
+    println!(
+        "Martingale diagnostic: {}",
+        c.martingale.rescaled(scale).summary(unit)
+    );
+    println!(
+        "  (the fixed-point residual is ~0 by construction; a nonzero drift means micro-price is not \
+         a martingale under this model's own kernel - see docs/model-spec.md)"
+    );
 }
 
 pub fn run(args: TrainArgs) -> Result<(), Box<dyn std::error::Error>> {
@@ -206,14 +261,17 @@ pub fn run(args: TrainArgs) -> Result<(), Box<dyn std::error::Error>> {
         .collect();
     println!("  generated in {:.3}s", gen_start.elapsed().as_secs_f64());
 
-    let model = calibrate_model(
+    let calibrated = calibrate_model(
         &events,
         &state_space,
         args.common.symbol_id,
         args.common.num_imbalance_buckets,
         spread_bounds,
         args.common.smoothing_alpha,
+        args.common.symmetrize,
     )?;
+    print_diagnostics(&calibrated, "ticks", 1.0);
+    let model = calibrated.model;
     model.save(&args.output)?;
 
     println!(

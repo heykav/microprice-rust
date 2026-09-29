@@ -13,7 +13,7 @@ use microprice_core::{ImbalanceBucketing, SpreadBucketing, StateSpaceConfig};
 use microprice_data::{MarketDataSource, SyntheticEventGenerator};
 use microprice_eval::{chronological_split, evaluate_model};
 
-use crate::train::{calibrate_model, parse_spread_bounds, CommonTrainArgs};
+use crate::train::{calibrate_model, parse_spread_bounds, print_diagnostics, CommonTrainArgs};
 
 #[derive(Args, Debug)]
 pub struct EvaluateArgs {
@@ -70,14 +70,17 @@ pub fn run(args: EvaluateArgs) -> Result<(), Box<dyn std::error::Error>> {
     );
 
     println!("Calibrating on the train split only...");
-    let model = calibrate_model(
+    let calibrated = calibrate_model(
         train_events,
         &state_space,
         args.common.symbol_id,
         args.common.num_imbalance_buckets,
         spread_bounds,
         args.common.smoothing_alpha,
+        args.common.symmetrize,
     )?;
+    print_diagnostics(&calibrated, "ticks", 1.0);
+    let model = calibrated.model;
 
     println!(
         "Evaluating out-of-sample at horizon={} against {} held-out events...",

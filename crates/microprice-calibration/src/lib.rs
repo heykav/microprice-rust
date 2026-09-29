@@ -59,6 +59,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod diagnostics;
 pub mod error;
 pub mod estimator;
 pub mod model;
@@ -66,9 +67,10 @@ pub mod smoothing;
 pub mod solver;
 pub mod transitions;
 
+pub use diagnostics::{antisymmetry_residual, martingale_diagnostic, MartingaleDiagnostic};
 pub use error::CalibrationError;
 pub use estimator::{estimate, EstimatedTransitions};
 pub use model::{MicroPriceEstimate, MicroPriceModel, ModelMetadata, SCHEMA_VERSION};
 pub use smoothing::SmoothingConfig;
-pub use solver::{solve, SolverConfig};
-pub use transitions::TransitionCounter;
+pub use solver::{solve, solve_full_chain, SolverConfig};
+pub use transitions::{mirror_state, TransitionCounter};

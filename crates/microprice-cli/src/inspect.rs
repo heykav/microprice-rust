@@ -47,6 +47,13 @@ pub fn run(args: InspectArgs) -> Result<(), Box<dyn std::error::Error>> {
     println!();
     println!("state_count:                {state_count}");
     println!("g_star range:               [{min_g:.6}, {max_g:.6}], mean {mean_g:.6}");
+    if let Ok(res) =
+        microprice_calibration::antisymmetry_residual(g_star, meta.num_imbalance_buckets)
+    {
+        println!(
+            "antisymmetry residual:      {res:.3e} (max |G*[s] + G*[mirror(s)]|; ~0 iff calibrated with --symmetrize)"
+        );
+    }
     println!("visits range:               [{min_visits}, {max_visits}]");
     println!("states with zero visits:    {zero_visit_states} / {state_count}");
     if zero_visit_states > 0 {

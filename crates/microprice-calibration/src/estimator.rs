@@ -18,6 +18,9 @@
 //! p_up[i] = (up_moves[i] + alpha) / (up_moves[i] + down_moves[i] + 2 * alpha)
 //! ```
 //!
+//! `r[i][j] = pc_count[i][j] / (visits[i] + alpha * (state_count + 1))`
+//! is the matching price-changing landing mass (diagnostics only).
+//!
 //! `G1`'s smoothing uses a "prior mean of zero" interpretation (a
 //! never-observed state gets `G1 = 0` when `alpha > 0` — "no information"
 //! rather than "confidently no adjustment", since it shrinks toward, but
@@ -49,6 +52,15 @@ pub struct EstimatedTransitions {
     pub state_count: u32,
     /// Flattened `state_count x state_count` sub-stochastic matrix.
     pub q: Vec<f64>,
+    /// Flattened `state_count x state_count`: the **price-changing**
+    /// counterpart of `q`, `r[i][j] = pc_count[i][j] / (visits[i] +
+    /// alpha * (state_count + 1))` (same denominator as `q`). Where `q`
+    /// says "stayed at this mid and landed in `j`", `r` says "moved the mid
+    /// and landed in `j`". The solver never reads it; the martingale
+    /// diagnostic does. Row sums of `q + r` are `<= 1`; the shortfall is
+    /// the smoothing pseudo-mass (`alpha / denominator`, exactly zero when
+    /// `alpha == 0`).
+    pub r: Vec<f64>,
     pub g1: Vec<f64>,
     /// Per-state `P(next move is up | next move is directional)`; `None`
     /// where the state was observed but never moved.
@@ -73,6 +85,7 @@ pub fn estimate(
     let n = counter.state_count() as usize;
     let alpha = smoothing.alpha;
     let mut q = vec![0.0f64; n * n];
+    let mut r = vec![0.0f64; n * n];
     let mut g1 = vec![0.0f64; n];
     let mut p_up = vec![None; n];
     let mut visits = vec![0u64; n];
@@ -95,6 +108,11 @@ pub fn estimate(
                 return Err(CalibrationError::InsufficientObservations { state: i as u32 });
             }
             q[i * n + j] = value;
+            r[i * n + j] = counter.price_change_count(
+                microprice_core::StateId(i as u32),
+                microprice_core::StateId(j as u32),
+            ) as f64
+                / denom_q;
         }
 
         let denom_g1 = v as f64 + alpha;
@@ -120,6 +138,7 @@ pub fn estimate(
     Ok(EstimatedTransitions {
         state_count: counter.state_count(),
         q,
+        r,
         g1,
         p_up,
         visits,

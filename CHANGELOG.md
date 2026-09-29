@@ -7,6 +7,25 @@ cut from these changes; version numbers are unchanged.
 ## [Unreleased]
 
 ### Added
+- Optional imbalance-mirror symmetrization in calibration
+  (`TransitionCounter::symmetrized`, `mirror_state`; CLI `--symmetrize` on
+  `train`, `evaluate`, `evaluate-csv`). Off by default; makes `G*` exactly
+  antisymmetric. Derivation in `docs/model-spec.md`.
+- Martingale / fixed-point diagnostic (`martingale_diagnostic`,
+  `antisymmetry_residual`), printed by `train`, `evaluate` and `evaluate-csv`
+  and included in the `evaluate-csv` report; `inspect` prints the
+  antisymmetry residual. Finding recorded in the spec: the current recursion
+  `G* = G1 + Q G*` is **not** a martingale by construction; the measured
+  drift is reported, not assumed away.
+- `solve_full_chain` (library only, experimental): solves
+  `G = G1 + (Q + R) G`, which is a martingale by construction. Not wired to
+  any CLI command or evaluation predictor.
+- `TransitionCounter` now also counts where price-changing transitions land
+  (`price_change_count`); `EstimatedTransitions` gains the matching `r`
+  matrix. Neither enters `Q`, `G1` or `G*`.
+- `docs/real-data-evaluation.md`: dated amendments section (2026-09-29,
+  before any real-data result exists). Pre-registered predictors,
+  configuration and decision rule unchanged.
 - `microprice-data::csv`: Level-1 CSV ingestion with a generic named-column
   schema and Binance USD-M `bookTicker` and LOBSTER presets (mappings
   UNVERIFIED against vendor documentation). Half-tick model units keep
