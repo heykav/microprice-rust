@@ -10,6 +10,20 @@ pub enum DataError {
     #[error("invalid synthetic generator configuration: {reason}")]
     InvalidSyntheticConfig { reason: String },
 
+    /// A file could not be opened or read while ingesting a CSV.
+    #[error("CSV I/O error: {0}")]
+    CsvIo(String),
+
+    /// The CSV's header/columns or the ingest configuration do not match
+    /// what the requested schema needs (e.g. a named column is absent).
+    #[error("CSV schema error: {reason}")]
+    CsvSchema { reason: String },
+
+    /// A CSV data row was invalid (`row` is the 1-based line number in the
+    /// file, counting the header).
+    #[error("CSV line {row}: {reason}")]
+    CsvRow { row: usize, reason: String },
+
     /// A file, schema, or encoding failure while reading/writing a Parquet
     /// file (feature `parquet-ingestion`) — everything from a missing file
     /// to a missing/mistyped column, wrapped so callers only need to match

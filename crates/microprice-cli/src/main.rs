@@ -2,11 +2,13 @@
 //! queue-imbalance micro-price models end-to-end against the synthetic
 //! development dataset (`microprice-data`'s `SyntheticEventGenerator`).
 //!
-//! Real-data (CSV/Parquet) ingestion is Phase 12 — `train` only has one
-//! data source available today, and says so.
+//! `train` and `evaluate` use the synthetic generator (and say so);
+//! `evaluate-csv` runs the same calibration and out-of-sample evaluation on
+//! a real Level-1 quote CSV.
 
 mod benchmark;
 mod evaluate;
+mod evaluate_csv;
 mod inspect;
 mod predict;
 mod train;
@@ -37,6 +39,8 @@ enum Command {
     Benchmark(benchmark::BenchmarkArgs),
     /// Chronological out-of-sample evaluation against mid/weighted_mid baselines.
     Evaluate(evaluate::EvaluateArgs),
+    /// Calibrate and evaluate on a real Level-1 quote CSV (generic, Binance bookTicker, LOBSTER).
+    EvaluateCsv(evaluate_csv::EvaluateCsvArgs),
     /// Render static PNG plots of a calibrated model's g_star surface.
     Visualize(visualize::VisualizeArgs),
 }
@@ -49,6 +53,7 @@ fn main() -> std::process::ExitCode {
         Command::Inspect(args) => inspect::run(args),
         Command::Benchmark(args) => benchmark::run(args),
         Command::Evaluate(args) => evaluate::run(args),
+        Command::EvaluateCsv(args) => evaluate_csv::run(args),
         Command::Visualize(args) => visualize::run(args),
     };
     match result {

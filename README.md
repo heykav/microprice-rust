@@ -26,6 +26,36 @@ see [`site/README.md`](site/README.md) for exactly what that means and
 doesn't). The same file is checked in at [`site/index.html`](site/index.html);
 open it directly in a browser, no server required.
 
+## Real-data result
+
+**Result pending. There is no real-data number in this repository.**
+Everything measured so far used the synthetic generator (see the negative
+result in the CLI section below) or tiny hand-written format fixtures.
+
+What exists: an ingestion path for real Level-1 quote CSVs (a generic named
+column schema plus Binance USD-M futures `bookTicker` and LOBSTER presets), a
+`microprice evaluate-csv` command, and an evaluation protocol written before
+any result -
+[`docs/real-data-evaluation.md`](docs/real-data-evaluation.md) - with a
+chronological split, naive-mid and size-weighted-mid baselines, MAE/MSE and
+directional accuracy at fixed event horizons, bootstrap intervals, a
+pre-registered decision rule, and a commitment to publish negative results.
+The Binance and LOBSTER column mappings are **UNVERIFIED** against the
+vendors' documentation.
+
+Why it is pending: the environment this was built in could not reach the
+dataset hosts (`data.binance.vision`, `lobsterdata.com`). Producing the result
+needs network access to one of them. The exact command, on a machine with
+normal internet access:
+
+```bash
+TICK_SIZE=0.1 scripts/fetch_binance_bookticker.sh BTCUSDT 2024-01-15
+```
+
+(`TICK_SIZE` is the symbol's price tick; 0.1 for BTCUSDT is itself unverified
+here.) It writes `results/binance-bookticker-BTCUSDT-2024-01-15.md`. Downloaded
+data is not committed.
+
 ## What exists today
 
 **`microprice-core`** — the primitive types an L1 order book needs to be
@@ -241,6 +271,12 @@ cargo run -p microprice-cli -- benchmark --model /tmp/model.bin
 cargo run -p microprice-cli -- evaluate --num-events 300000 \
     --num-imbalance-buckets 10 --spread-bucket-bounds "1,2,4"
 cargo run -p microprice-cli -- visualize --model /tmp/model.bin --output-dir /tmp/viz
+
+# Real Level-1 quote CSV (see docs/real-data-evaluation.md for the protocol):
+cargo run --release -p microprice-cli -- evaluate-csv --input quotes.csv \
+    --format generic --timestamp-col ts --timestamp-unit ms \
+    --bid-price-col bid_px --bid-qty-col bid_sz \
+    --ask-price-col ask_px --ask-qty-col ask_sz --tick-size 0.01
 
 # Parquet ingestion (a library function, not yet a CLI flag - feature-gated,
 # see microprice-data/src/parquet.rs):
