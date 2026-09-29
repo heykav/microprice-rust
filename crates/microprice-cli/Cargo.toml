@@ -22,3 +22,9 @@ microprice-data.workspace = true
 microprice-eval.workspace = true
 clap.workspace = true
 plotters.workspace = true
+
+[features]
+# Off by default so the default build stays lean: arrow/parquet are a large
+# dependency tree that only `evaluate-parquet` needs. Enable with
+# `--features parquet`. (`cargo test --all-features`, as CI runs it, includes it.)
+parquet = ["microprice-data/parquet-ingestion"]

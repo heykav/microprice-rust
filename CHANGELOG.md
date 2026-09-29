@@ -7,6 +7,12 @@ cut from these changes; version numbers are unchanged.
 ## [Unreleased]
 
 ### Added
+- `microprice evaluate-parquet` (CLI feature `parquet`, forwarding to
+  `microprice-data/parquet-ingestion`; off by default, so the default build
+  does not compile arrow/parquet). Schema and rules in
+  `docs/parquet-input.md`; tests generate their fixtures in the test. The
+  post-ingestion pipeline is now shared with `evaluate-csv`
+  (`EvalCommon`, `evaluate_and_report`); CSV behaviour is unchanged.
 - Python bindings: `MicroPriceModel.predict_batch` (vectorised over integer
   columns; NumPy optional, not a dependency), tested in
   `docs/python_bindings_smoke_test.py` and documented in

@@ -4,11 +4,13 @@
 //!
 //! `train` and `evaluate` use the synthetic generator (and say so);
 //! `evaluate-csv` runs the same calibration and out-of-sample evaluation on
-//! a real Level-1 quote CSV.
+//! a real Level-1 quote CSV, and `evaluate-parquet` (feature `parquet`) on a
+//! Level-1 Parquet file.
 
 mod benchmark;
 mod evaluate;
 mod evaluate_csv;
+mod evaluate_parquet;
 mod inspect;
 mod predict;
 mod train;
@@ -41,6 +43,9 @@ enum Command {
     Evaluate(evaluate::EvaluateArgs),
     /// Calibrate and evaluate on a real Level-1 quote CSV (generic, Binance bookTicker, LOBSTER).
     EvaluateCsv(Box<evaluate_csv::EvaluateCsvArgs>),
+    /// Calibrate and evaluate on a Level-1 Parquet file (this project's schema;
+    /// needs a build with `--features parquet`, see docs/parquet-input.md).
+    EvaluateParquet(Box<evaluate_parquet::EvaluateParquetArgs>),
     /// Render static PNG plots of a calibrated model's g_star surface.
     Visualize(visualize::VisualizeArgs),
 }
@@ -54,6 +59,7 @@ fn main() -> std::process::ExitCode {
         Command::Benchmark(args) => benchmark::run(args),
         Command::Evaluate(args) => evaluate::run(args),
         Command::EvaluateCsv(args) => evaluate_csv::run(*args),
+        Command::EvaluateParquet(args) => evaluate_parquet::run(*args),
         Command::Visualize(args) => visualize::run(args),
     };
     match result {
