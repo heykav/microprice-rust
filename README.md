@@ -1,5 +1,13 @@
 # MicroPrice-Rust
 
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/hero-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="docs/img/hero-light.svg">
+  <img src="docs/img/hero-light.svg" alt="MicroPrice-Rust banner: queue-imbalance micro-price estimation for limit order books, in Rust. Labels: research code, synthetic data only, no real-data result yet. The schematic of bid and ask sizes around the mid-price is illustrative, not data.">
+</picture>
+</p>
+
 Queue-imbalance micro-price estimation for limit order books, in Rust. Given
 a stream of best bid / best ask quotes (price and size), it calibrates a
 Markov-chain model over discretized (imbalance, spread) states and outputs
@@ -54,6 +62,11 @@ ask price/size), see [Real-data result](#real-data-result) and
 is an interactive console over an embedded, pre-trained model (static; see
 [`site/README.md`](site/README.md) for exactly what that means).
 
+<p align="center">
+<a href="https://heykav.github.io/microprice-rust/"><img src="docs/img/site-demo.png" alt="Screenshot of the Micro-Price Terminal demo page: top-of-book inputs on the left, a model read-out with mid, weighted mid, the G* adjustment and the micro-price, and a plot of G* across the imbalance axis. The model behind it was trained on the project's synthetic generator." width="880"></a><br>
+<sub>The demo page (headless Chromium, 1280x800). The embedded model was trained on the project's <b>synthetic</b> generator, not on market data.</sub>
+</p>
+
 ## Real-data result
 
 **Result pending. There is no real-data number in this repository.**
@@ -100,6 +113,24 @@ The Brier score against a climatological baseline shows no skill either
 imbalance-to-direction signal). The generator is deterministic (same seed, identical
 output) and exists for tests and examples, not realism.
 
+Figures below are regenerated from the CLI output by [`scripts/make_figures.py`](scripts/make_figures.py) (all synthetic data, seed 42):
+
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/fig-mae-comparison-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/img/fig-mae-comparison-light.png">
+  <img src="docs/img/fig-mae-comparison-light.png" alt="Horizontal bar chart of held-out mean absolute error in ticks on synthetic data at horizon 1: naive mid 0.0988, micro-price 0.1094, micro-price with symmetrization 0.1031, size-weighted mid 0.2974. The micro-price does not beat the naive mid." width="760">
+</picture>
+</p>
+
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/fig-martingale-drift-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/img/fig-martingale-drift-light.png">
+  <img src="docs/img/fig-martingale-drift-light.png" alt="Log-scale bar chart on synthetic data comparing the solver fixed-point residual (about 1e-10 ticks) with the one-step micro-price drift (about 1e-3 ticks by default, 1e-5 to 1e-6 with symmetrization). The residual is near zero by construction; the drift is not, so the recursion is not a martingale by construction." width="760">
+</picture>
+</p>
+
 ## How it works
 
 1. **State.** Best-bid/ask sizes give imbalance `I = Qb / (Qb + Qa)`, split
@@ -115,6 +146,16 @@ output) and exists for tests and examples, not realism.
 5. **Predict.** `micro-price = mid + G*[state]`, allocation-free.
 
 Exact definitions and degenerate cases: [`docs/model-spec.md`](docs/model-spec.md).
+
+The calibrated `G*` for a synthetic-data model, by imbalance bucket and spread bucket (cells never visited in training are hatched, not coloured):
+
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/fig-gstar-heatmap-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/img/fig-gstar-heatmap-light.png">
+  <img src="docs/img/fig-gstar-heatmap-light.png" alt="Two heatmaps of the calibrated G* adjustment in ticks over imbalance bucket and spread bucket, for default calibration and for symmetrized calibration, trained on synthetic data. Only the 2-tick spread row was visited in training (10 of 40 states); all other cells are hatched as never visited. The pattern is an artifact of the synthetic generator, not evidence about markets." width="900">
+</picture>
+</p>
 
 ## Departures from the paper
 
@@ -162,6 +203,14 @@ replication. Known differences:
 
 ## Workspace
 
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/architecture-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="docs/img/architecture-light.svg">
+  <img src="docs/img/architecture-light.svg" alt="Crate dependency diagram. microprice-cli depends on eval, calibration and data; microprice-python, a separate Cargo workspace built with maturin, depends on calibration and data; eval depends on calibration; calibration and data depend on microprice-core, which has no dependency besides thiserror." width="900">
+</picture>
+</p>
+
 | crate | contents |
 |---|---|
 | `microprice-core` | integer-tick prices, quantities, validated `TopOfBook` (crossed/locked policy is explicit), imbalance, state discretization |
@@ -204,6 +253,7 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo fmt --all --check
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
 cargo bench -p microprice-core             # optional; see docs/benchmarking.md
+python3 scripts/make_figures.py               # optional; regenerates docs/img figures (needs matplotlib, numpy)
 ```
 
 CI runs these on Linux and macOS plus a `maturin` build and smoke test of the

@@ -7,6 +7,10 @@ cut from these changes; version numbers are unchanged.
 ## [Unreleased]
 
 ### Added
+- Visuals: README banner and crate-layout diagram (dark/light SVG), figures
+  regenerated from CLI output by `scripts/make_figures.py` (G* heatmap, MAE
+  comparison, martingale drift vs fixed-point residual; all synthetic data),
+  a demo-page screenshot and a 1280x640 social-preview image under `docs/img/`.
 - `microprice evaluate-parquet` (CLI feature `parquet`, forwarding to
   `microprice-data/parquet-ingestion`; off by default, so the default build
   does not compile arrow/parquet). Schema and rules in
