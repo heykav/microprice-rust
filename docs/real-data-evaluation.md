@@ -49,6 +49,11 @@ default and is not used by the pre-registered run.
    reported in their own sections, labelled "additional, NOT pre-registered",
    and are never the primary or secondary comparison. The event horizons
    `1, 10, 100` and the primary horizon 10 are unchanged.
+4. **Parquet input path.** `evaluate-parquet` (feature `parquet`,
+   `docs/parquet-input.md`) reads the same kind of Level-1 data from Parquet
+   and runs the identical post-ingestion pipeline and decision rule. It
+   changes no protocol setting; the Binance/LOBSTER data of this document is
+   still ingested through CSV.
 
 ## Data
 

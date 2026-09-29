@@ -52,6 +52,73 @@ impl From<TimestampUnitArg> for TimestampUnit {
     }
 }
 
+/// Options shared by `evaluate-csv` and `evaluate-parquet`: everything
+/// after ingestion (split, model configuration, horizons, bootstrap, report).
+#[derive(Args, Debug)]
+pub struct EvalCommon {
+    /// Model units per exchange tick. 2 keeps mid-prices exact when the
+    /// spread is an odd number of ticks; see microprice-data's csv docs.
+    #[arg(long, default_value_t = 2)]
+    pub resolution: u32,
+
+    /// Fraction of the chronologically ordered stream used for calibration.
+    #[arg(long, default_value_t = 0.7)]
+    pub train_fraction: f64,
+
+    /// Comma-separated event horizons.
+    #[arg(long, default_value = "1,10,100")]
+    pub horizons: String,
+
+    /// ADDITIONAL, not pre-registered: comma-separated wall-clock horizons
+    /// in milliseconds (e.g. "100,1000"), evaluated with the rule in
+    /// docs/real-data-evaluation.md (target = quote prevailing at
+    /// t + T, boundary included). Empty (default) = none. Reported after
+    /// the event horizons and never used by the decision rule.
+    #[arg(long, default_value = "")]
+    pub wall_clock_horizons_ms: String,
+
+    /// The one horizon the pre-registered decision rule is applied to. Must
+    /// appear in --horizons.
+    #[arg(long, default_value_t = 10)]
+    pub primary_horizon: usize,
+
+    #[arg(long, default_value_t = 10)]
+    pub num_imbalance_buckets: u32,
+
+    /// Spread bucket upper bounds in EXCHANGE TICKS (converted to model
+    /// units internally), e.g. "1,2,4".
+    #[arg(long, default_value = "1,2,4")]
+    pub spread_bucket_bounds: String,
+
+    #[arg(long, default_value_t = 0.5)]
+    pub smoothing_alpha: f64,
+
+    /// EXPLORATORY, off by default (the pre-registered configuration does
+    /// not symmetrize): pool every transition with its imbalance mirror
+    /// image (I <-> 1-I, price moves negated). Runs with this flag are
+    /// labelled non-pre-registered in the report.
+    #[arg(long)]
+    pub symmetrize: bool,
+
+    #[arg(long, default_value_t = 1000)]
+    pub bootstrap_resamples: usize,
+
+    /// Bootstrap block length in observations. 0 = max(1000, 10 x largest
+    /// horizon).
+    #[arg(long, default_value_t = 0)]
+    pub block_len: usize,
+
+    #[arg(long, default_value_t = 42)]
+    pub seed: u64,
+
+    #[arg(long, default_value_t = 1)]
+    pub symbol_id: u32,
+
+    /// Also write the Markdown report to this path.
+    #[arg(long)]
+    pub report_md: Option<PathBuf>,
+}
+
 #[derive(Args, Debug)]
 pub struct EvaluateCsvArgs {
     /// Quote CSV (for --format lobster: the `orderbook` file).
@@ -69,11 +136,6 @@ pub struct EvaluateCsvArgs {
     /// Prices off this grid are invalid rows. Required: it is not guessed.
     #[arg(long)]
     tick_size: f64,
-
-    /// Model units per exchange tick. 2 keeps mid-prices exact when the
-    /// spread is an odd number of ticks; see microprice-data's csv docs.
-    #[arg(long, default_value_t = 2)]
-    resolution: u32,
 
     /// Decimal digits of size kept (default: 8 for Binance, 0 for LOBSTER,
     /// 8 for generic).
@@ -108,62 +170,8 @@ pub struct EvaluateCsvArgs {
     #[arg(long)]
     max_events: Option<usize>,
 
-    /// Fraction of the chronologically ordered stream used for calibration.
-    #[arg(long, default_value_t = 0.7)]
-    train_fraction: f64,
-
-    /// Comma-separated event horizons.
-    #[arg(long, default_value = "1,10,100")]
-    horizons: String,
-
-    /// ADDITIONAL, not pre-registered: comma-separated wall-clock horizons
-    /// in milliseconds (e.g. "100,1000"), evaluated with the rule in
-    /// docs/real-data-evaluation.md (target = quote prevailing at
-    /// t + T, boundary included). Empty (default) = none. Reported after
-    /// the event horizons and never used by the decision rule.
-    #[arg(long, default_value = "")]
-    wall_clock_horizons_ms: String,
-
-    /// The one horizon the pre-registered decision rule is applied to. Must
-    /// appear in --horizons.
-    #[arg(long, default_value_t = 10)]
-    primary_horizon: usize,
-
-    #[arg(long, default_value_t = 10)]
-    num_imbalance_buckets: u32,
-
-    /// Spread bucket upper bounds in EXCHANGE TICKS (converted to model
-    /// units internally), e.g. "1,2,4".
-    #[arg(long, default_value = "1,2,4")]
-    spread_bucket_bounds: String,
-
-    #[arg(long, default_value_t = 0.5)]
-    smoothing_alpha: f64,
-
-    /// EXPLORATORY, off by default (the pre-registered configuration does
-    /// not symmetrize): pool every transition with its imbalance mirror
-    /// image (I <-> 1-I, price moves negated). Runs with this flag are
-    /// labelled non-pre-registered in the report.
-    #[arg(long)]
-    symmetrize: bool,
-
-    #[arg(long, default_value_t = 1000)]
-    bootstrap_resamples: usize,
-
-    /// Bootstrap block length in observations. 0 = max(1000, 10 x largest
-    /// horizon).
-    #[arg(long, default_value_t = 0)]
-    block_len: usize,
-
-    #[arg(long, default_value_t = 42)]
-    seed: u64,
-
-    #[arg(long, default_value_t = 1)]
-    symbol_id: u32,
-
-    /// Also write the Markdown report to this path.
-    #[arg(long)]
-    report_md: Option<PathBuf>,
+    #[command(flatten)]
+    common: EvalCommon,
 }
 
 type BoxErr = Box<dyn std::error::Error>;
@@ -219,11 +227,11 @@ fn build_config(args: &EvaluateCsvArgs) -> CsvIngestConfig {
             args.tick_size,
         ),
     };
-    cfg.resolution = args.resolution;
+    cfg.resolution = args.common.resolution;
     if let Some(d) = args.qty_decimals {
         cfg.qty_decimals = d;
     }
-    cfg.symbol = SymbolId(args.symbol_id);
+    cfg.symbol = SymbolId(args.common.symbol_id);
     cfg.on_invalid_row = if args.skip_invalid_rows {
         InvalidRowPolicy::Skip
     } else {
@@ -235,15 +243,8 @@ fn build_config(args: &EvaluateCsvArgs) -> CsvIngestConfig {
 }
 
 pub fn run(args: EvaluateCsvArgs) -> Result<(), BoxErr> {
-    let horizons = parse_horizons(&args.horizons)?;
-    let wall_clock_ns = parse_wall_clock_ms(&args.wall_clock_horizons_ms)?;
-    if !horizons.contains(&args.primary_horizon) {
-        return Err(format!(
-            "--primary-horizon {} must be one of --horizons {:?}",
-            args.primary_horizon, horizons
-        )
-        .into());
-    }
+    // Validate the shared options before touching the filesystem.
+    Plan::parse(&args.common)?;
     let cfg = build_config(&args);
 
     eprintln!("Reading {} ...", args.input.display());
@@ -257,6 +258,66 @@ pub fn run(args: EvaluateCsvArgs) -> Result<(), BoxErr> {
         }
         _ => read_csv_file(&args.input, &cfg)?,
     };
+    let source = SourceInfo {
+        command: "evaluate-csv",
+        file_name: file_name_of(&args.input),
+        format: format!("{:?}", args.format),
+        tick_size: Some(args.tick_size),
+    };
+    evaluate_and_report(&args.common, &source, &ingest)
+}
+
+/// Where the events came from, for the report header.
+pub struct SourceInfo {
+    pub command: &'static str,
+    pub file_name: String,
+    pub format: String,
+    /// Price of one exchange tick, when the input format carries it.
+    pub tick_size: Option<f64>,
+}
+
+pub fn file_name_of(path: &std::path::Path) -> String {
+    path.file_name()
+        .map(|f| f.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+/// Parsed, validated horizon options.
+struct Plan {
+    horizons: Vec<usize>,
+    wall_clock_ns: Vec<u64>,
+}
+
+impl Plan {
+    fn parse(common: &EvalCommon) -> Result<Plan, BoxErr> {
+        let horizons = parse_horizons(&common.horizons)?;
+        let wall_clock_ns = parse_wall_clock_ms(&common.wall_clock_horizons_ms)?;
+        if !horizons.contains(&common.primary_horizon) {
+            return Err(format!(
+                "--primary-horizon {} must be one of --horizons {:?}",
+                common.primary_horizon, horizons
+            )
+            .into());
+        }
+        Ok(Plan {
+            horizons,
+            wall_clock_ns,
+        })
+    }
+}
+
+/// Everything after ingestion: chronological split, calibration, paired
+/// comparison at every horizon, Markdown report. Shared by
+/// `evaluate-csv` and `evaluate-parquet` so both apply identical logic.
+pub fn evaluate_and_report(
+    common: &EvalCommon,
+    source: &SourceInfo,
+    ingest: &CsvIngest,
+) -> Result<(), BoxErr> {
+    let Plan {
+        horizons,
+        wall_clock_ns,
+    } = Plan::parse(common)?;
     let events = &ingest.events;
     if events.len() < 100 {
         return Err(format!(
@@ -266,7 +327,7 @@ pub fn run(args: EvaluateCsvArgs) -> Result<(), BoxErr> {
         .into());
     }
 
-    let (train, test) = chronological_split(events, args.train_fraction)?;
+    let (train, test) = chronological_split(events, common.train_fraction)?;
     // Hard guard on the no-leakage requirement: every training timestamp
     // must precede or equal every test timestamp.
     let train_last = train.last().map(|e| e.timestamp_ns).unwrap_or(0);
@@ -275,11 +336,11 @@ pub fn run(args: EvaluateCsvArgs) -> Result<(), BoxErr> {
         return Err("internal error: train/test split is not chronological".into());
     }
 
-    let res = i64::from(args.resolution);
-    let bounds_ticks = parse_spread_bounds(&args.spread_bucket_bounds)?;
+    let res = i64::from(common.resolution);
+    let bounds_ticks = parse_spread_bounds(&common.spread_bucket_bounds)?;
     let bounds_units: Vec<i64> = bounds_ticks.iter().map(|b| b * res).collect();
     let state_space = StateSpaceConfig::new(
-        ImbalanceBucketing::new(args.num_imbalance_buckets)?,
+        ImbalanceBucketing::new(common.num_imbalance_buckets)?,
         SpreadBucketing::new(bounds_units.clone())?,
     );
 
@@ -291,19 +352,19 @@ pub fn run(args: EvaluateCsvArgs) -> Result<(), BoxErr> {
     let calibrated = calibrate_model(
         train,
         &state_space,
-        args.symbol_id,
-        args.num_imbalance_buckets,
+        common.symbol_id,
+        common.num_imbalance_buckets,
         bounds_units,
-        args.smoothing_alpha,
-        args.symmetrize,
+        common.smoothing_alpha,
+        common.symmetrize,
     )?;
     let model = &calibrated.model;
 
     let max_h = *horizons.iter().max().unwrap_or(&1);
-    let block_len = if args.block_len == 0 {
+    let block_len = if common.block_len == 0 {
         1000.max(10 * max_h)
     } else {
-        args.block_len
+        common.block_len
     };
     let mut reports = Vec::new();
     for &h in &horizons {
@@ -312,12 +373,12 @@ pub fn run(args: EvaluateCsvArgs) -> Result<(), BoxErr> {
             test,
             CompareOptions {
                 horizon: h,
-                bootstrap_resamples: args.bootstrap_resamples,
+                bootstrap_resamples: common.bootstrap_resamples,
                 block_len,
-                seed: args.seed,
+                seed: common.seed,
             },
         )?;
-        reports.push(r.rescaled(1.0 / args.resolution as f64));
+        reports.push(r.rescaled(1.0 / common.resolution as f64));
     }
     for &ns in &wall_clock_ns {
         let r = compare_predictors_wall_clock(
@@ -326,25 +387,25 @@ pub fn run(args: EvaluateCsvArgs) -> Result<(), BoxErr> {
             ns,
             CompareOptions {
                 horizon: 1,
-                bootstrap_resamples: args.bootstrap_resamples,
-                block_len: args.block_len,
-                seed: args.seed,
+                bootstrap_resamples: common.bootstrap_resamples,
+                block_len: common.block_len,
+                seed: common.seed,
             },
         )?;
-        reports.push(r.rescaled(1.0 / args.resolution as f64));
+        reports.push(r.rescaled(1.0 / common.resolution as f64));
     }
 
     let md = render_markdown(
-        &args,
-        &ingest,
-        train,
-        test,
+        common,
+        source,
+        ingest,
+        (train, test),
         &calibrated,
         &reports,
         block_len,
     );
     println!("{md}");
-    if let Some(path) = &args.report_md {
+    if let Some(path) = &common.report_md {
         if let Some(dir) = path.parent() {
             if !dir.as_os_str().is_empty() {
                 std::fs::create_dir_all(dir)?;
@@ -397,10 +458,10 @@ fn verdict(diff: Interval, baseline: &str) -> String {
 }
 
 fn render_markdown(
-    args: &EvaluateCsvArgs,
+    args: &EvalCommon,
+    source: &SourceInfo,
     ingest: &CsvIngest,
-    train: &[microprice_core::BookEvent],
-    test: &[microprice_core::BookEvent],
+    (train, test): (&[microprice_core::BookEvent], &[microprice_core::BookEvent]),
     calibrated: &Calibrated,
     reports: &[ComparisonReport],
     block_len: usize,
@@ -419,20 +480,22 @@ fn render_markdown(
     let _ = writeln!(s, "# Real-data evaluation report\n");
     let _ = writeln!(
         s,
-        "Generated by `microprice evaluate-csv` v{}. Protocol: `docs/real-data-evaluation.md`. \
-         All lengths are in exchange ticks (1 tick = {} in price units).\n",
+        "Generated by `microprice {}` v{}. Protocol: `docs/real-data-evaluation.md`. \
+         All lengths are in exchange ticks{}.\n",
+        source.command,
         env!("CARGO_PKG_VERSION"),
-        args.tick_size
+        match source.tick_size {
+            Some(t) => format!(" (1 tick = {t} in price units)"),
+            None => format!(
+                " (input prices are integer model units; {} units = 1 tick)",
+                args.resolution
+            ),
+        }
     );
 
     let _ = writeln!(s, "## Data\n");
-    let file_name = args
-        .input
-        .file_name()
-        .map(|f| f.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let _ = writeln!(s, "- input file: `{file_name}`");
-    let _ = writeln!(s, "- format: {:?}", args.format);
+    let _ = writeln!(s, "- input file: `{}`", source.file_name);
+    let _ = writeln!(s, "- format: {}", source.format);
     let _ = writeln!(s, "- rows read: {}", ingest.rows_read);
     let _ = writeln!(s, "- events accepted: {}", ingest.events.len());
     if ingest.skipped.is_empty() {

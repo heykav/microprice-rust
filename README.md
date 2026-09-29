@@ -168,12 +168,14 @@ replication. Known differences:
 | `microprice-data` | `MarketDataSource`, deterministic synthetic generator, Level-1 CSV ingestion (generic, Binance `bookTicker`, LOBSTER), optional Parquet (`parquet-ingestion` feature, off by default) |
 | `microprice-calibration` | transition counting, estimation, solver, serializable `MicroPriceModel` (bincode + JSON sidecar, validated on load) |
 | `microprice-eval` | chronological split, metrics, `compare_predictors` (paired baselines with block-bootstrap intervals) |
-| `microprice-cli` | `microprice` binary: `train`, `predict`, `inspect`, `benchmark`, `evaluate`, `evaluate-csv`, `visualize` |
+| `microprice-cli` | `microprice` binary: `train`, `predict`, `inspect`, `benchmark`, `evaluate`, `evaluate-csv`, `evaluate-parquet` (feature `parquet`), `visualize` |
 | `microprice-python` | PyO3 bindings (`load`/`save`/`predict`/`predict_batch`/`metadata`, `train_synthetic`); its own Cargo workspace, built with `maturin`, see [`docs/python-bindings.md`](docs/python-bindings.md). No Parquet/CSV ingestion from Python yet. |
 
 `microprice-cli` `train` and `evaluate` use the synthetic generator only;
-`evaluate-csv` is the real-data entry point. Parquet reading is a library
-function, not a CLI flag.
+`evaluate-csv` is the real-data entry point. `evaluate-parquet` reads this
+project's Parquet Level-1 schema ([`docs/parquet-input.md`](docs/parquet-input.md))
+and exists only in builds with `--features parquet`; the default build does
+not compile arrow/parquet.
 
 ## Correctness evidence
 
@@ -215,7 +217,7 @@ All of the following exist and are tested: core types and state encoding;
 synthetic generator; transition counting; estimation and smoothing; solver;
 model serialization; CLI (`train`, `predict`, `inspect`, `benchmark`,
 `evaluate`, `visualize`); chronological evaluation; Parquet ingestion
-(library, feature-gated); Python bindings; static PNG visualization (three
+(library, and CLI `evaluate-parquet` behind `--features parquet`); Python bindings; static PNG visualization (three
 plots via `plotters`); CSV ingestion and `evaluate-csv`; profiling.
 
 Added since: optional imbalance symmetrization, a martingale diagnostic,
