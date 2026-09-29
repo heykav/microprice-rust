@@ -4,7 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Command-line interface for MicroPrice-Rust: train/predict/inspect/benchmark against the synthetic development dataset (Phase 10)."
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories = ["finance", "algorithms", "command-line-utilities"]
+authors.workspace = true
+description = "Command-line interface for MicroPrice-Rust: train, predict, inspect, benchmark, evaluate (synthetic or CSV), and visualize."
 
 [[bin]]
 name = "microprice"

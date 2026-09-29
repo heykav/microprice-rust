@@ -4,7 +4,12 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/heykav/microprice-rust"
-description = "PyO3 Python bindings for MicroPrice-Rust (Phase 13)."
+homepage = "https://github.com/heykav/microprice-rust"
+readme = "../../README.md"
+keywords = ["microprice", "order-book", "market-microstructure", "quant", "finance"]
+categories = ["finance", "algorithms"]
+authors = ["Krishna Anubhav"]
+description = "PyO3 Python bindings for MicroPrice-Rust."
 
 # Deliberately its own workspace, NOT a member of the root MicroPrice-Rust
 # workspace: a PyO3 extension-module crate builds as a cdylib that expects

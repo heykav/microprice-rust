@@ -4,6 +4,22 @@
 //! synthetic generator and the Parquet reader produce, so calibration and
 //! evaluation need no changes to consume real data.
 //!
+//! ```
+//! use std::io::Cursor;
+//! use microprice_data::csv::{read_csv_events, CsvIngestConfig};
+//!
+//! // A made-up two-row file in the Binance bookTicker layout (format demo only).
+//! let csv = "update_id,best_bid_price,best_bid_qty,best_ask_price,best_ask_qty,transaction_time,event_time\n\
+//!            1,100.0,2.0,100.1,1.0,1700000000000,1700000000001\n\
+//!            2,100.0,3.0,100.1,1.0,1700000000010,1700000000011\n";
+//! let config = CsvIngestConfig::binance_book_ticker(0.1); // tick size is required
+//! let ingest = read_csv_events(Cursor::new(csv), &config, None)?;
+//! assert_eq!(ingest.events.len(), 2);
+//! // Prices are integer half-tick units: 100.0 / 0.1 = 1000 ticks -> 2000 units.
+//! assert_eq!(ingest.events[0].book.bid_price.0, 2000);
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
+//!
 //! ## Schemas
 //!
 //! A schema is a set of column references (by header name or by position)
