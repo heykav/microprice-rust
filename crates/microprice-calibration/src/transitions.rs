@@ -30,6 +30,14 @@ pub struct TransitionCounter {
     /// module docs on `crate::estimator`) is only ever defined over
     /// non-price-changing destinations.
     counts: Vec<u64>,
+    /// Flattened `state_count x state_count`: `pc_counts[i * state_count + j]`
+    /// is how many observed transitions went from `i` to `j` **with** a
+    /// price change (`delta_ticks != 0`). Disjoint from `counts`, so
+    /// `sum_j counts[i][j] + sum_j pc_counts[i][j] == visits[i]`. It does
+    /// not enter `Q`, `G1` or `G*`; it exists so the martingale diagnostic
+    /// (`crate::diagnostics`) can evaluate the model's own full transition
+    /// kernel, including where price-changing moves land.
+    pc_counts: Vec<u64>,
     /// `delta_sum[i]`: sum of every observed signed mid-price tick delta
     /// over transitions starting at `i`.
     delta_sum: Vec<i64>,
@@ -65,6 +73,7 @@ impl TransitionCounter {
             state_count,
             visits: vec![0; n],
             counts: vec![0; n * n],
+            pc_counts: vec![0; n * n],
             delta_sum: vec![0; n],
             up_moves: vec![0; n],
             down_moves: vec![0; n],
@@ -83,6 +92,12 @@ impl TransitionCounter {
 
     pub fn count(&self, from: StateId, to: StateId) -> u64 {
         self.counts[from.0 as usize * self.state_count as usize + to.0 as usize]
+    }
+
+    /// How many observed transitions went `from -> to` **with** a
+    /// price change (the complement of [`Self::count`]).
+    pub fn price_change_count(&self, from: StateId, to: StateId) -> u64 {
+        self.pc_counts[from.0 as usize * self.state_count as usize + to.0 as usize]
     }
 
     pub fn delta_sum(&self, state: StateId) -> i64 {
@@ -154,10 +169,13 @@ impl TransitionCounter {
         self.visits[from_idx] += 1;
         if delta_ticks == 0 {
             self.counts[from_idx * n + to.0 as usize] += 1;
-        } else if delta_ticks > 0 {
-            self.up_moves[from_idx] += 1;
         } else {
-            self.down_moves[from_idx] += 1;
+            self.pc_counts[from_idx * n + to.0 as usize] += 1;
+            if delta_ticks > 0 {
+                self.up_moves[from_idx] += 1;
+            } else {
+                self.down_moves[from_idx] += 1;
+            }
         }
         self.delta_sum[from_idx] += delta_ticks;
     }
@@ -241,9 +259,68 @@ impl TransitionCounter {
         }
         for i in 0..self.counts.len() {
             self.counts[i] += other.counts[i];
+            self.pc_counts[i] += other.pc_counts[i];
         }
         Ok(())
     }
+
+    /// Returns the **mirror-symmetrized** counter: every observed
+    /// transition `i -> j` with signed move `d` is also counted as the
+    /// transition `sigma(i) -> sigma(j)` with move `-d`, where `sigma` is
+    /// [`mirror_state`] (imbalance bucket `b -> N-1-b`, spread bucket
+    /// unchanged). See `docs/model-spec.md`, "Imbalance symmetrization",
+    /// for the derivation and the guarantees that follow (exact
+    /// antisymmetry of `G1` and `G*`).
+    ///
+    /// `num_imbalance_buckets` is `N`; `state_count` must be a multiple of
+    /// it (state ids are `spread_bucket * N + imbalance_bucket`). Every
+    /// count is exactly doubled in total (each transition contributes once
+    /// as observed and once mirrored), so with a fixed smoothing `alpha`
+    /// the pseudo-observations weigh half as much relative to the data as
+    /// without symmetrization; this is inherent to pooling and is
+    /// documented, not compensated. The result carries no
+    /// `last_observed`/`last_sequence` (it is a derived statistic, not a
+    /// stream cursor).
+    pub fn symmetrized(
+        &self,
+        num_imbalance_buckets: u32,
+    ) -> Result<TransitionCounter, CalibrationError> {
+        let n_imb = num_imbalance_buckets;
+        if n_imb == 0 || !self.state_count.is_multiple_of(n_imb) {
+            return Err(CalibrationError::DimensionMismatch {
+                expected: n_imb as usize,
+                actual: self.state_count as usize,
+            });
+        }
+        let n = self.state_count as usize;
+        let sigma = |s: usize| mirror_state(StateId(s as u32), n_imb).0 as usize;
+        let mut out = TransitionCounter::new(self.state_count);
+        for i in 0..n {
+            let mi = sigma(i);
+            out.visits[i] = self.visits[i] + self.visits[mi];
+            out.delta_sum[i] = self.delta_sum[i] - self.delta_sum[mi];
+            out.up_moves[i] = self.up_moves[i] + self.down_moves[mi];
+            out.down_moves[i] = self.down_moves[i] + self.up_moves[mi];
+            for j in 0..n {
+                let mj = sigma(j);
+                out.counts[i * n + j] = self.counts[i * n + j] + self.counts[mi * n + mj];
+                out.pc_counts[i * n + j] = self.pc_counts[i * n + j] + self.pc_counts[mi * n + mj];
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// The mirror map `sigma` on state ids: imbalance bucket `b -> N-1-b`,
+/// spread bucket unchanged. An involution (`sigma(sigma(s)) == s`).
+/// Corresponds to the market mirror `I -> 1 - I` (swap bid and ask sizes)
+/// composed with `price change -> -price change`. Requires
+/// `num_imbalance_buckets >= 1`.
+pub fn mirror_state(state: StateId, num_imbalance_buckets: u32) -> StateId {
+    let n = num_imbalance_buckets;
+    let spread_bucket = state.0 / n;
+    let b = state.0 % n;
+    StateId(spread_bucket * n + (n - 1 - b))
 }
 
 #[cfg(test)]

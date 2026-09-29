@@ -241,6 +241,147 @@ result.
 
 `MicroPrice = MidPrice + G*[StateSpaceConfig::encode(book)]`.
 
+## Imbalance symmetrization (optional, off by default)
+
+**Status: implemented as an option** (`TransitionCounter::symmetrized`,
+CLI `--symmetrize`). The default calibration is unchanged. Whether this
+matches the paper's own treatment is UNVERIFIED (the paper was not
+available; the README's "Departures from the paper" records the author's
+recollection that the paper's setting is symmetric).
+
+### The mirror map
+
+Define the mirror of a top-of-book `(Pb, Pa, Qb, Qa)` as
+`(-Pa, -Pb, Qa, Qb)`: swap the two queue sizes and reflect prices about
+zero (equivalently about any constant). Then
+
+```text
+I' = Qa / (Qa + Qb) = 1 - I        S' = (-Pb) - (-Pa) = S        M' = -M
+```
+
+so the mirror sends imbalance `I` to `1 - I`, leaves the spread unchanged and
+negates every mid-price move: `delta' = -delta`. On discretized states,
+`sigma(state)` keeps the spread bucket and sends imbalance bucket `b` to
+`N - 1 - b` (`mirror_state`); `sigma` is an involution, and for odd `N` the
+middle bucket is its own mirror.
+
+### The symmetry hypothesis and what follows from it
+
+**Hypothesis H:** the market's law is mirror-invariant, i.e. for every
+transition `P(i -> j, delta) = P(sigma(i) -> sigma(j), -delta)`. Then
+`Q[sigma i][sigma j] = Q[i][j]` and `G1[sigma i] = -G1[i]`. Let `(Pi f)[i] =
+f[sigma i]`. H says `Pi Q Pi = Q` and `Pi G1 = -G1`.
+
+*Claim: `G*` is exactly antisymmetric, `G*[sigma i] = -G*[i]`.* Proof: the
+solver's fixed point is `G* = sum_k Q^k G1` (convergent when the spectral
+radius of the sub-stochastic `Q` is below 1, which is also what makes the
+iteration converge). Because `Pi` commutes with `Q`, `Pi G* = sum_k Q^k Pi G1
+= -G*`. The solution is unique, so nothing else is possible. Equivalently:
+the micro-price adjustment is odd under `I -> 1 - I`, and a perfectly
+balanced book has no adjustment.
+
+### Imposing H on data
+
+H is a hypothesis about the market, not a fact about a sample; a sample is
+never exactly symmetric, so the plain estimate is only approximately
+antisymmetric. `symmetrized` *imposes* H on the counts: every observed
+transition `(i -> j, delta)` is also counted as `(sigma i -> sigma j,
+-delta)`. Concretely, for the counts `visits`, `counts`, price-changing
+landing counts, `up_moves`, `down_moves`, `delta_sum`:
+
+```text
+visits'[i]      = visits[i] + visits[sigma i]
+counts'[i][j]   = counts[i][j] + counts[sigma i][sigma j]      (same for price-changing)
+delta_sum'[i]   = delta_sum[i] - delta_sum[sigma i]
+up'[i]          = up[i] + down[sigma i]      down'[i] = down[i] + up[sigma i]
+```
+
+The primed counts satisfy H exactly, so the estimated `Q`, `G1` satisfy
+`Q[sigma i][sigma j] = Q[i][j]`, `G1[sigma i] = -G1[i]` exactly, hence (by
+the claim) `G*` is antisymmetric up to floating-point rounding, and
+`p_up[sigma i] = 1 - p_up[i]`. Laplace smoothing is compatible: the same
+`alpha` is added to every cell, and the zero-mean prior on `G1` and 0.5
+prior on `p_up` are themselves mirror-invariant. Tests
+(`crates/microprice-calibration/tests/symmetry_and_martingale.rs`) check the
+antisymmetry to `1e-9`, that a stream and its exact mirror produce the same
+symmetrized model, and that the unsymmetrized estimate on the same data is
+visibly not antisymmetric.
+
+Consequences, stated plainly: (1) each transition informs two states, so
+sampling noise in `G*` is reduced; (2) any *real* asymmetry in the data (a
+persistent drift, a venue where the ask side behaves differently) is
+deliberately erased; (3) with `alpha` fixed, pooling doubles the data so the
+smoothing prior weighs half as much; (4) `training_observations` in the model
+metadata stays the number of *real* transitions.
+
+**Bucket-edge caveat.** `sigma` is exact on buckets. On raw imbalance values
+an `I` exactly on an edge `k/N` falls in bucket `k`, while its mirror `1 -
+k/N` falls in bucket `N - k`, not `N - 1 - k`. This concerns a measure-zero
+set for real-valued `I` but integer sizes can hit it; the pooled estimate is
+still a valid estimate, just not a perfect image of an edge-free market.
+The tests remove edge cases before asserting exact identities.
+
+## Martingale diagnostic
+
+The construction is motivated by the micro-price being a martingale (author's
+recollection; UNVERIFIED against the paper). This project's `G*` is checked
+numerically against that property on the model's own transition kernel.
+
+### Derivation
+
+With `P = M + G(state)`, and the kernel from state `i`: mid unchanged with
+probability `Q[i][j]` (landing in `j`), mid changed with probability
+`R[i][j]` (landing in `j`; `R` is `pc_count / (visits + alpha (n + 1))`), and
+expected mid change `G1[i]`:
+
+```text
+E[P_next | i] - P_i  =  G1[i] + sum_j (Q[i][j] + R[i][j]) G[j] - G[i]     =: drift_i
+```
+
+`P` is a martingale on the model's kernel iff `drift = 0`, i.e. iff
+`G = G1 + (Q + R) G`. (For `alpha = 0`, `Q + R` is stochastic and `G1` is
+exactly the expected mid change, so `drift_i` is the exact one-step
+expected change of the micro-price. For `alpha > 0` the kernel leaks
+`alpha / (visits + alpha (n + 1))` of its mass per row, contributing zero, the
+same zero-mean convention the solver uses.)
+
+### The finding: it does NOT hold by construction for the current recursion
+
+The default solver enforces `G* = G1 + Q G*` with only the non-price-changing
+block `Q`. Substituting that into the drift:
+
+```text
+drift_i = sum_j R[i][j] G*[j]
+```
+
+which is zero only if price-changing moves land in states whose `G*`
+averages to zero. It is not zero in general. A hand-checkable example
+(`tests/symmetry_and_martingale.rs`): `Q = [[.5, 0], [.4, .2]]`, price-changing
+mass landing in state 1 (`R[0][1] = .5`, `R[1][1] = .4`), `G1 = [.1, .1]`,
+`G* = [.2, .225]`, giving `drift = [.1125, .09]`.
+
+So the diagnostic reports two numbers: the **fixed-point residual**
+`max|G1 + Q G - G|` (the solver's own equation; ~1e-10, by construction), and
+the **drift** (the martingale defect; data-dependent, generally nonzero).
+The CLI prints both after every calibration (`train`, `evaluate`,
+`evaluate-csv`), and `evaluate-csv` writes them in the report as
+descriptive, non-decision quantities.
+
+### An alternative recursion (library only, experimental)
+
+`solve_full_chain` solves `G = G1 + (Q + R) G` instead. For it `drift = 0`
+holds by construction (tested, including that the diagnostic flags a
+corrupted `G`). Its cost is convergence: with `alpha = 0` the kernel is
+stochastic and `sum_k P^k G1` converges only if the stationary mean of `G1`
+is zero; mirror symmetrization guarantees that (the stationary law is
+mirror-invariant and `G1` antisymmetric), and a test confirms convergence
+on symmetrized synthetic data while an asymmetric unsmoothed chain returns
+`DidNotConverge`. With `alpha > 0` it always converges but on asymmetric data
+the leak-limited answer can be large. It is **not** wired to any CLI
+command, model artifact or evaluation predictor, and is not part of the
+pre-registered protocol. Whether the paper's `G*` is this quantity or the
+default one is UNVERIFIED.
+
 ## Smoothing (V1, as of Phase 7)
 
 Raw counts can leave `visits[i] == 0` for states never observed during

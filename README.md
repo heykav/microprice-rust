@@ -13,7 +13,8 @@ study or extend, not a trading signal.
 **Status: research code, no real-data result yet.** On the project's own
 synthetic data the calibrated micro-price does **not** beat the naive
 mid-price (MAE 0.1094 vs 0.0988 ticks, horizon 1, 90,000 held-out events;
-[details](#what-was-measured-on-synthetic-data)). The synthetic generator has
+[details](#what-was-measured-on-synthetic-data); the optional symmetrized
+variant does not either, 0.1031). The synthetic generator has
 no imbalance-to-direction signal, so that says little about real markets,
 and no real-data number exists yet ([why](#real-data-result)). The CSV
 ingestion for real Level-1 data and a pre-registered evaluation protocol
@@ -94,7 +95,9 @@ drives price-move direction as its own Markov chain, independent of queue
 imbalance, so there is no imbalance signal for the model to find. This is a
 negative result about that synthetic dataset, not evidence about order books.
 The Brier score against a climatological baseline shows no skill either
-(about -0.0006). The generator is deterministic (same seed, identical
+(about -0.0006). The same command with `--symmetrize` gives micro-price MAE 0.1031 vs
+0.0988 for the naive mid: still no win (consistent with the generator carrying no
+imbalance-to-direction signal). The generator is deterministic (same seed, identical
 output) and exists for tests and examples, not realism.
 
 ## How it works
@@ -125,14 +128,21 @@ against it.)
 This implementation is *in the tradition of* that construction, not a
 replication. Known differences:
 
-- **No imbalance symmetrization.** The paper's setting has a natural
-  symmetry (mirror the imbalance and flip the direction of moves). Here every
-  state is estimated independently; the symmetry is neither imposed nor
-  tested. Estimates are noisier and the surface is not guaranteed
-  antisymmetric.
-- **No explicit martingale check.** The construction is motivated by the
-  micro-price being a martingale. This code solves the fixed point but does
-  not test that property on data.
+- **Imbalance symmetrization is optional and off by default.** The paper's
+  setting is recalled (UNVERIFIED) to have a natural mirror symmetry
+  (`I -> 1 - I`, moves negated). `--symmetrize` imposes it by pooling each
+  transition with its mirror image, which makes `G*` exactly antisymmetric
+  (proved and tested; derivation in `docs/model-spec.md`). Without the flag
+  every state is estimated independently and the surface is only
+  approximately antisymmetric.
+- **The martingale property does not hold by construction here.** The
+  construction is motivated by the micro-price being a martingale (recalled,
+  UNVERIFIED). This code's recursion `G* = G1 + Q G*` only involves
+  non-price-changing transitions; the one-step drift of `mid + G*` is
+  `sum_j R[i][j] G*[j]`, generally nonzero. A diagnostic measures it and
+  the CLI reports it. `solve_full_chain` (library only) solves the
+  martingale-consistent recursion; whether the paper's `G*` is that one is
+  UNVERIFIED.
 - **Event-to-event sampling.** Every consecutive quote event is a
   transition, including size-only updates and (with some feeds) no-op rows.
   Whether that matches the paper's time scale is unverified. Fixed-time and
@@ -207,9 +217,10 @@ model serialization; CLI (`train`, `predict`, `inspect`, `benchmark`,
 (library, feature-gated); Python bindings; static PNG visualization (three
 plots via `plotters`); CSV ingestion and `evaluate-csv`; profiling.
 
-Not done: a real-data result; wall-clock horizons; imbalance symmetrization;
-a martingale diagnostic; `predict_batch` and ingestion in the Python bindings;
-a measured MSRV.
+Added since: optional imbalance symmetrization and a martingale diagnostic.
+
+Not done: a real-data result; wall-clock horizons; `predict_batch` and
+ingestion in the Python bindings; a measured MSRV.
 
 No benchmark numbers, accuracy claims or example predictions are added to this
 README unless they come from a reproducible run on real or explicitly

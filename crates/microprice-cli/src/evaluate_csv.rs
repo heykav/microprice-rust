@@ -20,7 +20,7 @@ use microprice_eval::{
     chronological_split, compare_predictors, CompareOptions, ComparisonReport, Interval,
 };
 
-use crate::train::{calibrate_model, parse_spread_bounds};
+use crate::train::{calibrate_model, parse_spread_bounds, Calibrated};
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
 pub enum CsvFormatArg {
@@ -130,6 +130,13 @@ pub struct EvaluateCsvArgs {
 
     #[arg(long, default_value_t = 0.5)]
     smoothing_alpha: f64,
+
+    /// EXPLORATORY, off by default (the pre-registered configuration does
+    /// not symmetrize): pool every transition with its imbalance mirror
+    /// image (I <-> 1-I, price moves negated). Runs with this flag are
+    /// labelled non-pre-registered in the report.
+    #[arg(long)]
+    symmetrize: bool,
 
     #[arg(long, default_value_t = 1000)]
     bootstrap_resamples: usize,
@@ -252,14 +259,16 @@ pub fn run(args: EvaluateCsvArgs) -> Result<(), BoxErr> {
         train.len(),
         test.len()
     );
-    let model = calibrate_model(
+    let calibrated = calibrate_model(
         train,
         &state_space,
         args.symbol_id,
         args.num_imbalance_buckets,
         bounds_units,
         args.smoothing_alpha,
+        args.symmetrize,
     )?;
+    let model = &calibrated.model;
 
     let max_h = *horizons.iter().max().unwrap_or(&1);
     let block_len = if args.block_len == 0 {
@@ -270,7 +279,7 @@ pub fn run(args: EvaluateCsvArgs) -> Result<(), BoxErr> {
     let mut reports = Vec::new();
     for &h in &horizons {
         let r = compare_predictors(
-            &model,
+            model,
             test,
             CompareOptions {
                 horizon: h,
@@ -282,13 +291,12 @@ pub fn run(args: EvaluateCsvArgs) -> Result<(), BoxErr> {
         reports.push(r.rescaled(1.0 / args.resolution as f64));
     }
 
-    let zero_visit_states = model.visits().iter().filter(|v| **v == 0).count();
     let md = render_markdown(
         &args,
         &ingest,
         train,
         test,
-        &model_summary(&model, zero_visit_states),
+        &calibrated,
         &reports,
         block_len,
     );
@@ -350,11 +358,18 @@ fn render_markdown(
     ingest: &CsvIngest,
     train: &[microprice_core::BookEvent],
     test: &[microprice_core::BookEvent],
-    model: &ModelSummary,
+    calibrated: &Calibrated,
     reports: &[ComparisonReport],
     block_len: usize,
 ) -> String {
     let res = args.resolution as f64;
+    let zero_visit_states = calibrated
+        .model
+        .visits()
+        .iter()
+        .filter(|v| **v == 0)
+        .count();
+    let model = &model_summary(&calibrated.model, zero_visit_states);
     let mut s = String::new();
     let all = || train.iter().chain(test.iter());
 
@@ -448,8 +463,33 @@ fn render_markdown(
     );
     let _ = writeln!(
         s,
-        "- training transitions observed: {}\n",
+        "- training transitions observed: {}",
         model.training_observations
+    );
+    let _ = writeln!(
+        s,
+        "- calibration: {}",
+        if calibrated.symmetrized {
+            "**imbalance-symmetrized (EXPLORATORY: not the pre-registered configuration)**"
+        } else {
+            "pre-registered configuration (no symmetrization)"
+        }
+    );
+    let to_ticks = 1.0 / res;
+    let _ = writeln!(
+        s,
+        "- antisymmetry residual max|G*[s] + G*[mirror(s)]|: {:.3e} ticks",
+        calibrated.antisymmetry_residual * to_ticks
+    );
+    let _ = writeln!(
+        s,
+        "- martingale diagnostic (model's own transition kernel, training split): {}",
+        calibrated.martingale.rescaled(to_ticks).summary("ticks")
+    );
+    let _ = writeln!(
+        s,
+        "  (Descriptive only. The fixed-point residual is ~0 by construction; a nonzero one-step drift means \
+         the micro-price is not a martingale under this model's kernel. See `docs/model-spec.md`.)\n"
     );
 
     let _ = writeln!(s, "## Results (test split only)\n");
@@ -537,6 +577,13 @@ fn render_markdown(
         "## Pre-registered decision (primary horizon {})\n",
         args.primary_horizon
     );
+    if calibrated.symmetrized {
+        let _ = writeln!(
+            s,
+            "**This run used `--symmetrize`, which is not the pre-registered configuration. \
+             The verdicts below are exploratory and must not be reported as the pre-registered result.**\n"
+        );
+    }
     if let Some(p) = reports.iter().find(|r| r.horizon == args.primary_horizon) {
         let _ = writeln!(
             s,

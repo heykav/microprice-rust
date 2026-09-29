@@ -62,6 +62,55 @@ pub fn solve(
     })
 }
 
+/// **Experimental, not used by any default path.** Solves the
+/// martingale-consistent recursion `G = G1 + (Q + R) G` by the same
+/// fixed-point iteration, where `Q + R` is the model's full (smoothed)
+/// state-to-state kernel over *all* transitions, price-changing or not.
+///
+/// By construction the result has zero one-step micro-price drift (see
+/// `crate::diagnostics`): `E[M' + G(s')] = M + G(s)` in every state. The
+/// default [`solve`] differs by omitting `R` from the recursion, so its
+/// result is generally *not* a martingale. The price of this recursion is
+/// convergence: when `alpha == 0` the kernel is stochastic and the
+/// iteration `G <- G1 + P G` converges only if the stationary mean of `G1`
+/// is zero (as it is, exactly, for a mirror-symmetrized counter); with
+/// `alpha > 0` the kernel leaks mass so it always converges, but on
+/// asymmetric data the leak-limited answer can be very large. Returns
+/// [`CalibrationError::DidNotConverge`] rather than a truncated result.
+pub fn solve_full_chain(
+    est: &EstimatedTransitions,
+    config: SolverConfig,
+) -> Result<Vec<f64>, CalibrationError> {
+    let n = est.state_count as usize;
+    let mut g = est.g1.clone();
+    let mut next = vec![0.0f64; n];
+    let step = |g: &[f64], next: &mut [f64]| -> f64 {
+        let mut max_delta: f64 = 0.0;
+        for i in 0..n {
+            let mut acc = est.g1[i];
+            for (j, gj) in g.iter().enumerate() {
+                acc += (est.q[i * n + j] + est.r[i * n + j]) * gj;
+            }
+            next[i] = acc;
+            max_delta = max_delta.max((acc - g[i]).abs());
+        }
+        max_delta
+    };
+    let mut last = f64::INFINITY;
+    for _ in 0..config.max_iterations {
+        last = step(&g, &mut next);
+        std::mem::swap(&mut g, &mut next);
+        if last < config.tolerance {
+            return Ok(g);
+        }
+    }
+    Err(CalibrationError::DidNotConverge {
+        max_iterations: config.max_iterations,
+        final_delta: last,
+        tolerance: config.tolerance,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -74,6 +123,7 @@ mod tests {
         EstimatedTransitions {
             state_count: 2,
             q: vec![0.5, 0.0, 0.4, 0.2],
+            r: vec![0.0; 4],
             g1: vec![0.1, 0.1],
             // The solver never reads `p_up` - it solves for `G*` from
             // `(Q, G1)` alone - so these fixtures leave it blank.
@@ -97,6 +147,7 @@ mod tests {
         let est = EstimatedTransitions {
             state_count: 3,
             q: vec![0.0; 9],
+            r: vec![0.0; 9],
             g1: vec![0.5, -0.3, 0.0],
             p_up: vec![None; 3],
             visits: vec![10, 10, 10],
@@ -117,6 +168,7 @@ mod tests {
         let est = EstimatedTransitions {
             state_count: 2,
             q: vec![0.9999999, 0.0, 0.0, 0.9999999],
+            r: vec![0.0; 4],
             g1: vec![1.0, 1.0],
             p_up: vec![None; 2],
             visits: vec![10, 10],
@@ -143,6 +195,7 @@ mod tests {
             q: vec![
                 0.3, 0.1, 0.0, 0.0, 0.1, 0.3, 0.1, 0.0, 0.0, 0.1, 0.3, 0.1, 0.0, 0.0, 0.1, 0.3,
             ],
+            r: vec![0.0; 16],
             g1: vec![0.05, -0.02, 0.01, 0.0],
             p_up: vec![None; 4],
             visits: vec![100, 100, 100, 100],
