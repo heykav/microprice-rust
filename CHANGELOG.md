@@ -7,6 +7,10 @@ cut from these changes; version numbers are unchanged.
 ## [Unreleased]
 
 ### Added
+- Python bindings: `MicroPriceModel.predict_batch` (vectorised over integer
+  columns; NumPy optional, not a dependency), tested in
+  `docs/python_bindings_smoke_test.py` and documented in
+  `docs/python-bindings.md`.
 - Wall-clock evaluation horizons: `compare_predictors_wall_clock` and
   `resolve_wall_clock_targets` in `microprice-eval`, CLI
   `evaluate-csv --wall-clock-horizons-ms`. Target = quote prevailing at

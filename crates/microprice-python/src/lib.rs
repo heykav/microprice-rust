@@ -14,13 +14,14 @@
 
 use std::path::PathBuf;
 
+use pyo3::buffer::PyBuffer;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{PyDict, PyList};
 
 use microprice_calibration::{
-    estimate, solve, MicroPriceModel, ModelMetadata, SmoothingConfig, SolverConfig,
-    TransitionCounter, SCHEMA_VERSION,
+    estimate, solve, MicroPriceEstimate, MicroPriceModel, ModelMetadata, SmoothingConfig,
+    SolverConfig, TransitionCounter, SCHEMA_VERSION,
 };
 use microprice_core::{
     BookValidationPolicy, ImbalanceBucketing, PriceTicks, Quantity, SpreadBucketing,
@@ -30,6 +31,38 @@ use microprice_data::{MarketDataSource, SyntheticConfig, SyntheticEventGenerator
 
 fn to_py_err<E: std::fmt::Display>(e: E) -> PyErr {
     PyValueError::new_err(e.to_string())
+}
+
+/// Extracts a one-dimensional integer column from a Python object.
+///
+/// Accepts anything exposing a contiguous 1-D `int64` or `uint64` buffer
+/// (NumPy arrays, `array.array('q'/'Q')`, ...), which is read without
+/// per-element Python overhead, and otherwise falls back to any Python
+/// sequence of integers (`list`, `tuple`, ...). Floats are rejected rather
+/// than truncated. `what` names the column in error messages.
+fn extract_int_column(obj: &Bound<'_, PyAny>, what: &str) -> PyResult<Vec<i64>> {
+    if let Ok(buf) = PyBuffer::<i64>::get(obj) {
+        if buf.dimensions() == 1 {
+            return buf.to_vec(obj.py());
+        }
+    }
+    if let Ok(buf) = PyBuffer::<u64>::get(obj) {
+        if buf.dimensions() == 1 {
+            return buf
+                .to_vec(obj.py())?
+                .into_iter()
+                .map(|v| {
+                    i64::try_from(v)
+                        .map_err(|_| PyValueError::new_err(format!("{what}: value {v} too large")))
+                })
+                .collect();
+        }
+    }
+    obj.extract::<Vec<i64>>().map_err(|e| {
+        PyValueError::new_err(format!(
+            "{what} must be a 1-D int64/uint64 buffer (e.g. a NumPy array) or a sequence of integers: {e}"
+        ))
+    })
 }
 
 /// A calibrated micro-price model, loadable from (and savable to) the same
@@ -89,6 +122,108 @@ impl PyMicroPriceModel {
         dict.set_item("state_id", est.state_id)?;
         dict.set_item("state_observations", est.state_observations)?;
         dict.set_item("p_up", est.p_up)?;
+        Ok(dict.into())
+    }
+
+    /// Vectorised `predict`: one call for many books. Each argument is a
+    /// 1-D array of the same length - a NumPy `int64`/`uint64` array, an
+    /// `array.array`, or a plain list/tuple of ints. Prices are integer
+    /// ticks; quantities must be non-negative.
+    ///
+    /// Returns a dict of equal-length lists keyed like `predict`'s dict
+    /// (`mid_ticks`, `weighted_mid_ticks`, `microprice_ticks`,
+    /// `adjustment_ticks`, `state_id`, `state_observations`, `p_up`), where
+    /// `p_up` entries are `None` for states with no directional evidence.
+    /// Row `k` is exactly what `predict` returns for the `k`-th book.
+    ///
+    /// Raises `ValueError` if the lengths differ, an argument is not an
+    /// integer column, or any book is invalid (crossed/locked, both sizes
+    /// zero); the message names the first offending row index. Nothing is
+    /// returned for a partially valid batch.
+    fn predict_batch(
+        &self,
+        py: Python<'_>,
+        bid_price_ticks: &Bound<'_, PyAny>,
+        bid_qty: &Bound<'_, PyAny>,
+        ask_price_ticks: &Bound<'_, PyAny>,
+        ask_qty: &Bound<'_, PyAny>,
+    ) -> PyResult<Py<PyDict>> {
+        let bp = extract_int_column(bid_price_ticks, "bid_price_ticks")?;
+        let bq = extract_int_column(bid_qty, "bid_qty")?;
+        let ap = extract_int_column(ask_price_ticks, "ask_price_ticks")?;
+        let aq = extract_int_column(ask_qty, "ask_qty")?;
+        let n = bp.len();
+        if bq.len() != n || ap.len() != n || aq.len() != n {
+            return Err(PyValueError::new_err(format!(
+                "column lengths differ: bid_price_ticks={}, bid_qty={}, ask_price_ticks={}, ask_qty={}",
+                n,
+                bq.len(),
+                ap.len(),
+                aq.len()
+            )));
+        }
+        let to_qty = |v: i64, what: &str, k: usize| -> PyResult<Quantity> {
+            u64::try_from(v)
+                .map(Quantity)
+                .map_err(|_| PyValueError::new_err(format!("row {k}: {what} is negative ({v})")))
+        };
+        let mut books = Vec::with_capacity(n);
+        for k in 0..n {
+            let book = TopOfBook::new(
+                PriceTicks(bp[k]),
+                to_qty(bq[k], "bid_qty", k)?,
+                PriceTicks(ap[k]),
+                to_qty(aq[k], "ask_qty", k)?,
+                BookValidationPolicy::RejectCrossedAndLocked,
+            )
+            .map_err(|e| PyValueError::new_err(format!("row {k}: {e}")))?;
+            books.push(book);
+        }
+        let blank = MicroPriceEstimate {
+            mid_ticks: 0.0,
+            weighted_mid_ticks: 0.0,
+            microprice_ticks: 0.0,
+            adjustment_ticks: 0.0,
+            state_id: 0,
+            state_observations: 0,
+            p_up: None,
+        };
+        let mut out = vec![blank; n];
+        if self.inner.predict_batch(&books, &mut out).is_err() {
+            // Locate the first failing row for a useful message.
+            for (k, b) in books.iter().enumerate() {
+                if let Err(e) = self.inner.predict(b) {
+                    return Err(PyValueError::new_err(format!("row {k}: {e}")));
+                }
+            }
+            return Err(PyValueError::new_err("batch prediction failed"));
+        }
+        let dict = PyDict::new(py);
+        dict.set_item(
+            "mid_ticks",
+            out.iter().map(|e| e.mid_ticks).collect::<Vec<_>>(),
+        )?;
+        dict.set_item(
+            "weighted_mid_ticks",
+            out.iter().map(|e| e.weighted_mid_ticks).collect::<Vec<_>>(),
+        )?;
+        dict.set_item(
+            "microprice_ticks",
+            out.iter().map(|e| e.microprice_ticks).collect::<Vec<_>>(),
+        )?;
+        dict.set_item(
+            "adjustment_ticks",
+            out.iter().map(|e| e.adjustment_ticks).collect::<Vec<_>>(),
+        )?;
+        dict.set_item(
+            "state_id",
+            out.iter().map(|e| e.state_id).collect::<Vec<_>>(),
+        )?;
+        dict.set_item(
+            "state_observations",
+            out.iter().map(|e| e.state_observations).collect::<Vec<_>>(),
+        )?;
+        dict.set_item("p_up", PyList::new(py, out.iter().map(|e| e.p_up))?)?;
         Ok(dict.into())
     }
 
