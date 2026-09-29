@@ -15,7 +15,8 @@ pub mod metrics;
 pub mod split;
 
 pub use compare::{
-    compare_predictors, CompareOptions, ComparisonReport, DirectionStats, Interval, LossStats,
+    compare_predictors, compare_predictors_wall_clock, resolve_wall_clock_targets, CompareOptions,
+    ComparisonReport, DirectionStats, Interval, LossStats,
 };
 pub use error::EvalError;
 pub use evaluate::{evaluate as evaluate_model, EvalReport};

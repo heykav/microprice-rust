@@ -446,8 +446,10 @@ implicit:
    only, configurable `alpha`. State-merging and minimum-observation-count
    thresholds are documented-but-unimplemented alternatives, not silently
    folded into the additive-smoothing option.
-6. **Event sampling mode beyond event-to-event.** Fixed-wall-clock-interval
-   and N-event-horizon sampling (both named in the project brief) are not
-   implemented — `docs/model-spec.md`'s own rule against blurring sampling
+6. **Event sampling mode beyond event-to-event.** (Partly addressed:
+   *evaluation* now supports wall-clock horizons, see
+   `docs/real-data-evaluation.md`; *calibration* is still event-to-event.)
+   Fixed-wall-clock-interval and N-event-horizon sampling for calibration
+   (both named in the project brief) are not implemented — `docs/model-spec.md`'s own rule against blurring sampling
    modes together means adding either later is a new, separate estimator
    path, not a generalization of the event-to-event one.

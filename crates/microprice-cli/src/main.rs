@@ -40,7 +40,7 @@ enum Command {
     /// Chronological out-of-sample evaluation against mid/weighted_mid baselines.
     Evaluate(evaluate::EvaluateArgs),
     /// Calibrate and evaluate on a real Level-1 quote CSV (generic, Binance bookTicker, LOBSTER).
-    EvaluateCsv(evaluate_csv::EvaluateCsvArgs),
+    EvaluateCsv(Box<evaluate_csv::EvaluateCsvArgs>),
     /// Render static PNG plots of a calibrated model's g_star surface.
     Visualize(visualize::VisualizeArgs),
 }
@@ -53,7 +53,7 @@ fn main() -> std::process::ExitCode {
         Command::Inspect(args) => inspect::run(args),
         Command::Benchmark(args) => benchmark::run(args),
         Command::Evaluate(args) => evaluate::run(args),
-        Command::EvaluateCsv(args) => evaluate_csv::run(args),
+        Command::EvaluateCsv(args) => evaluate_csv::run(*args),
         Command::Visualize(args) => visualize::run(args),
     };
     match result {

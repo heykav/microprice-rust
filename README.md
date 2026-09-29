@@ -146,7 +146,8 @@ replication. Known differences:
 - **Event-to-event sampling.** Every consecutive quote event is a
   transition, including size-only updates and (with some feeds) no-op rows.
   Whether that matches the paper's time scale is unverified. Fixed-time and
-  N-event sampling are not implemented.
+  N-event sampling are not implemented for calibration (evaluation can use
+  wall-clock horizons, an additional analysis).
 - **Own discretization and smoothing.** Uniform imbalance buckets, explicit
   spread bounds, and additive Laplace smoothing (with a zero-mean prior on
   `G1`) are this project's choices, not the paper's. With `alpha = 0`,
@@ -217,9 +218,10 @@ model serialization; CLI (`train`, `predict`, `inspect`, `benchmark`,
 (library, feature-gated); Python bindings; static PNG visualization (three
 plots via `plotters`); CSV ingestion and `evaluate-csv`; profiling.
 
-Added since: optional imbalance symmetrization and a martingale diagnostic.
+Added since: optional imbalance symmetrization, a martingale diagnostic,
+and wall-clock evaluation horizons (additional, not pre-registered).
 
-Not done: a real-data result; wall-clock horizons; `predict_batch` and
+Not done: a real-data result; `predict_batch` and
 ingestion in the Python bindings; a measured MSRV.
 
 No benchmark numbers, accuracy claims or example predictions are added to this
