@@ -95,7 +95,17 @@ pub struct DirectionStats {
 /// Result of [`compare_predictors`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ComparisonReport {
+    /// Event horizon; `0` for a wall-clock report (see `horizon_ns`).
     pub horizon: usize,
+    /// `Some(T)` for a wall-clock horizon of `T` nanoseconds, else `None`.
+    pub horizon_ns: Option<u64>,
+    /// Wall-clock only: candidates dropped because the data ends before
+    /// `t_i + T` (the prevailing quote at `t_i + T` is unknown). `0` for
+    /// event horizons.
+    pub n_unresolved: usize,
+    /// Mean number of events between the prediction and its target quote
+    /// (`horizon` for event horizons; varies for wall-clock ones).
+    pub mean_events_ahead: f64,
     pub n_evaluated: usize,
     /// Candidates skipped because the book could not be encoded.
     pub n_skipped: usize,
@@ -144,8 +154,9 @@ impl ComparisonReport {
     }
 }
 
-/// Runs the paired comparison. `events` must be the held-out test slice, in
-/// chronological order (never data the model was calibrated on).
+/// Runs the paired comparison at an **event** horizon. `events` must be the
+/// held-out test slice, in chronological order (never data the model was
+/// calibrated on).
 pub fn compare_predictors(
     model: &MicroPriceModel,
     events: &[BookEvent],
@@ -168,6 +179,132 @@ pub fn compare_predictors(
             ),
         });
     }
+    let pairs: Vec<(usize, usize)> = (0..events.len() - options.horizon)
+        .map(|i| (i, i + options.horizon))
+        .collect();
+    compare_pairs(model, events, &pairs, options, None, 0)
+}
+
+/// Resolves, for each candidate event `i`, the index of the quote
+/// prevailing at wall-clock time `timestamps[i] + horizon_ns` (see
+/// [`compare_predictors_wall_clock`] for the exact rule). Returns the
+/// `(i, target)` pairs and the number of unresolved candidates.
+///
+/// `timestamps` must be non-decreasing and `horizon_ns >= 1`.
+pub fn resolve_wall_clock_targets(
+    timestamps: &[u64],
+    horizon_ns: u64,
+) -> Result<(Vec<(usize, usize)>, usize), EvalError> {
+    if horizon_ns == 0 {
+        return Err(EvalError::InsufficientEvents {
+            reason: "wall-clock horizon must be >= 1 ns".to_string(),
+        });
+    }
+    if let Some(w) = timestamps.windows(2).find(|w| w[1] < w[0]) {
+        return Err(EvalError::InsufficientEvents {
+            reason: format!(
+                "timestamps must be non-decreasing (saw {} after {})",
+                w[1], w[0]
+            ),
+        });
+    }
+    let n = timestamps.len();
+    let Some(&last_ts) = timestamps.last() else {
+        return Ok((Vec::new(), 0));
+    };
+    let mut pairs = Vec::new();
+    let mut unresolved = 0usize;
+    let mut j = 0usize;
+    for (i, &t) in timestamps.iter().enumerate() {
+        // An overflowing deadline can never be reached by any timestamp.
+        let Some(deadline) = t.checked_add(horizon_ns) else {
+            unresolved += 1;
+            continue;
+        };
+        if last_ts < deadline {
+            unresolved += 1;
+            continue;
+        }
+        if j < i {
+            j = i;
+        }
+        // Last event with timestamp <= deadline (inclusive boundary; ties in
+        // timestamp resolve to the LAST event at that timestamp).
+        while j + 1 < n && timestamps[j + 1] <= deadline {
+            j += 1;
+        }
+        pairs.push((i, j));
+    }
+    Ok((pairs, unresolved))
+}
+
+/// Runs the paired comparison at a **wall-clock** horizon of `horizon_ns`
+/// nanoseconds, using each event's `timestamp_ns`.
+///
+/// ## Rule (fixed here, tested, and documented in
+/// `docs/real-data-evaluation.md`)
+///
+/// For the prediction made at event `i` (time `t_i`), the target is the
+/// mid of the quote **prevailing at time `t_i + T`**: the last event whose
+/// timestamp is `<= t_i + T`. Consequently:
+///
+/// * a quote stamped **exactly** `t_i + T` is *included* (boundary is
+///   closed on the right); one stamped `t_i + T + 1 ns` is not;
+/// * if several events share the timestamp of the prevailing quote, the
+///   **last** of them is used (the book's state at the end of that
+///   instant);
+/// * if no event falls in `(t_i, t_i + T]` the prevailing quote is event
+///   `i` itself, the target mid equals the current mid, and the
+///   observation is kept (the quote did not change, which is information);
+/// * a candidate is **dropped and counted** in `n_unresolved` if the last
+///   event in the slice is stamped before `t_i + T`: past the end of data
+///   the prevailing quote is unknown, and assuming it persisted would bias
+///   toward "no change";
+/// * events with the same timestamp as `t_i` that follow `i` count as
+///   happening within the window (they are `<= t_i + T`).
+///
+/// Timestamps must be non-decreasing. `options.horizon` is ignored;
+/// `options.block_len == 0` means "auto": `max(1000, 10 * ceil(mean events
+/// ahead))`. Wall-clock horizons are an additional, non-pre-registered
+/// analysis (`docs/real-data-evaluation.md`, amendments).
+pub fn compare_predictors_wall_clock(
+    model: &MicroPriceModel,
+    events: &[BookEvent],
+    horizon_ns: u64,
+    options: CompareOptions,
+) -> Result<ComparisonReport, EvalError> {
+    let ts: Vec<u64> = events.iter().map(|e| e.timestamp_ns).collect();
+    let (pairs, unresolved) = resolve_wall_clock_targets(&ts, horizon_ns)?;
+    if pairs.is_empty() {
+        return Err(EvalError::InsufficientEvents {
+            reason: format!(
+                "no candidate has data through t + {horizon_ns} ns ({unresolved} unresolved)"
+            ),
+        });
+    }
+    let mut options = options;
+    if options.block_len == 0 {
+        let mean_ahead =
+            pairs.iter().map(|(i, j)| (j - i) as f64).sum::<f64>() / pairs.len() as f64;
+        options.block_len = 1000.max(10 * mean_ahead.ceil() as usize);
+    }
+    compare_pairs(model, events, &pairs, options, Some(horizon_ns), unresolved)
+}
+
+/// Shared core: evaluates the `(candidate, target)` index pairs.
+fn compare_pairs(
+    model: &MicroPriceModel,
+    events: &[BookEvent],
+    pairs: &[(usize, usize)],
+    options: CompareOptions,
+    horizon_ns: Option<u64>,
+    n_unresolved: usize,
+) -> Result<ComparisonReport, EvalError> {
+    if options.block_len == 0 {
+        return Err(EvalError::InsufficientEvents {
+            reason: "block_len must be >= 1".to_string(),
+        });
+    }
 
     // Per-observation error vectors, in chronological order.
     let mut e_mid = Vec::new();
@@ -177,11 +314,12 @@ pub fn compare_predictors(
     let mut dir_micro = Vec::new();
     let mut dir_wmid = Vec::new();
     let mut n_skipped = 0usize;
+    let mut ahead_sum = 0.0f64;
 
-    for i in 0..events.len() - options.horizon {
+    for &(i, target_idx) in pairs {
         // Exact doubled mid: `(bid + ask) / 2` computed in f64, not the
         // truncating integer `mid_price_ticks` (see the csv module docs).
-        let target = exact_mid(&events[i + options.horizon]);
+        let target = exact_mid(&events[target_idx]);
         match model.predict(&events[i].book) {
             Ok(est) => {
                 // `est.mid_ticks` is the truncating integer mid; recompute
@@ -195,6 +333,7 @@ pub fn compare_predictors(
                 dir_actual.push(target - mid);
                 dir_micro.push(micro - mid);
                 dir_wmid.push(wmid - mid);
+                ahead_sum += (target_idx - i) as f64;
             }
             Err(_) => n_skipped += 1,
         }
@@ -229,7 +368,14 @@ pub fn compare_predictors(
     };
 
     Ok(ComparisonReport {
-        horizon: options.horizon,
+        horizon: if horizon_ns.is_some() {
+            0
+        } else {
+            options.horizon
+        },
+        horizon_ns,
+        n_unresolved,
+        mean_events_ahead: ahead_sum / n as f64,
         n_evaluated: n,
         n_skipped,
         n_price_changing,
@@ -506,5 +652,130 @@ mod tests {
         assert_eq!(d.n_scored, 100);
         assert!((d.ci_lo - 0.4038).abs() < 1e-3);
         assert!((d.ci_hi - 0.5962).abs() < 1e-3);
+    }
+
+    // ------------------------------------------------ wall-clock horizons
+
+    fn ev_at(ts: u64, mid: i64) -> BookEvent {
+        BookEvent {
+            timestamp_ns: ts,
+            sequence: ts,
+            symbol: SymbolId(1),
+            book: TopOfBook::new(
+                PriceTicks(mid - 1),
+                Quantity(100),
+                PriceTicks(mid + 1),
+                Quantity(100),
+                BookValidationPolicy::RejectCrossedAndLocked,
+            )
+            .unwrap(),
+        }
+    }
+
+    #[test]
+    fn a_quote_exactly_at_the_boundary_is_included() {
+        // T = 20: the quote stamped exactly t + 20 is the target.
+        let (pairs, unresolved) = resolve_wall_clock_targets(&[0, 10, 20, 30, 40], 20).unwrap();
+        assert_eq!(pairs, vec![(0, 2), (1, 3), (2, 4)]);
+        // Candidates at 30 and 40 need data through 50 / 60: unresolved.
+        assert_eq!(unresolved, 2);
+    }
+
+    #[test]
+    fn a_quote_one_nanosecond_past_the_boundary_is_excluded() {
+        // Event 2 is stamped 21 = t + T + 1 for candidate 0: not included, the
+        // prevailing quote at t + 20 is still event 1 (stamped 10).
+        let (pairs, _) = resolve_wall_clock_targets(&[0, 10, 21, 30, 41], 20).unwrap();
+        assert_eq!(pairs[0], (0, 1));
+        // Candidate 1 (t = 10, deadline 30): event 3 (stamped exactly 30) is in.
+        assert_eq!(pairs[1], (1, 3));
+    }
+
+    #[test]
+    fn events_sharing_a_timestamp_resolve_to_the_last_one() {
+        let (pairs, unresolved) = resolve_wall_clock_targets(&[0, 5, 5, 5, 20], 5).unwrap();
+        // Candidate 0: deadline 5 -> the last of the three events stamped 5.
+        assert_eq!(pairs[0], (0, 3));
+        // Candidates 1..=3 (t = 5, deadline 10): still the last stamped 5.
+        assert_eq!(&pairs[1..], &[(1, 3), (2, 3), (3, 3)]);
+        // Candidate 4 (t = 20): data ends at 20 < 25.
+        assert_eq!(unresolved, 1);
+    }
+
+    #[test]
+    fn an_empty_window_keeps_the_observation_with_the_current_quote() {
+        let (pairs, unresolved) = resolve_wall_clock_targets(&[0, 100, 200], 50).unwrap();
+        assert_eq!(pairs, vec![(0, 0), (1, 1)]);
+        assert_eq!(unresolved, 1);
+    }
+
+    #[test]
+    fn wall_clock_inputs_are_validated() {
+        assert!(resolve_wall_clock_targets(&[0, 10], 0).is_err());
+        assert!(resolve_wall_clock_targets(&[10, 5], 1).is_err());
+        assert_eq!(resolve_wall_clock_targets(&[], 5).unwrap(), (Vec::new(), 0));
+        // Deadlines that overflow u64 are unresolved, not wrapped.
+        let (pairs, unresolved) = resolve_wall_clock_targets(&[u64::MAX - 1, u64::MAX], 5).unwrap();
+        assert!(pairs.is_empty());
+        assert_eq!(unresolved, 2);
+    }
+
+    #[test]
+    fn wall_clock_comparison_matches_hand_computed_errors() {
+        // ts:  0      10     20     35
+        // mid: 10001  10002  10003  10010      T = 20
+        // i=0 -> deadline 20 -> event 2 (10003): mid err -2
+        // i=1 -> deadline 30 -> event 2 (ts 20 <= 30 < 35): mid err -1
+        // i=2, i=3: deadline 40 > last timestamp 35 -> unresolved.
+        let events = vec![
+            ev_at(0, 10001),
+            ev_at(10, 10002),
+            ev_at(20, 10003),
+            ev_at(35, 10010),
+        ];
+        let r = compare_predictors_wall_clock(&model(), &events, 20, opts(1, 0, 1)).unwrap();
+        assert_eq!(r.horizon_ns, Some(20));
+        assert_eq!(r.horizon, 0);
+        assert_eq!(r.n_evaluated, 2);
+        assert_eq!(r.n_unresolved, 2);
+        assert!((r.mean_events_ahead - 1.5).abs() < 1e-12); // (2 + 1) / 2
+        assert!((r.mid.mae - 1.5).abs() < 1e-12);
+        assert!((r.mid.mse - 2.5).abs() < 1e-12); // (4 + 1) / 2
+                                                  // Balanced books -> +0.225: errors -1.775, -0.775.
+        assert!((r.microprice.mae - 1.275).abs() < 1e-12);
+        assert!((r.microprice.bias - (-1.275)).abs() < 1e-12);
+        assert_eq!(r.n_price_changing, 2);
+        assert!((r.up_share - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn wall_clock_reduces_to_the_event_horizon_on_a_regular_grid() {
+        let events: Vec<_> = (0..300)
+            .map(|i| ev_at(i as u64 * 1000, 10_000 + ((i * 7) % 5) as i64))
+            .collect();
+        let by_events = compare_predictors(&model(), &events, opts(3, 0, 10)).unwrap();
+        let by_clock =
+            compare_predictors_wall_clock(&model(), &events, 3000, opts(1, 0, 10)).unwrap();
+        assert_eq!(by_clock.n_evaluated, by_events.n_evaluated);
+        assert_eq!(by_clock.n_unresolved, 3);
+        assert_eq!(by_events.n_unresolved, 0);
+        assert_eq!(by_events.horizon_ns, None);
+        assert!((by_events.mean_events_ahead - 3.0).abs() < 1e-12);
+        assert_eq!(by_clock.mid, by_events.mid);
+        assert_eq!(by_clock.microprice, by_events.microprice);
+        assert_eq!(
+            by_clock.mse_diff_vs_mid.estimate,
+            by_events.mse_diff_vs_mid.estimate
+        );
+    }
+
+    #[test]
+    fn wall_clock_auto_block_length_and_no_data_error() {
+        let events: Vec<_> = (0..50).map(|i| ev_at(i as u64, 10_000)).collect();
+        // block_len 0 = auto, allowed only for wall-clock.
+        assert!(compare_predictors_wall_clock(&model(), &events, 5, opts(1, 20, 0)).is_ok());
+        assert!(compare_predictors(&model(), &events, opts(1, 20, 0)).is_err());
+        // Horizon longer than the whole slice: nothing resolvable.
+        assert!(compare_predictors_wall_clock(&model(), &events, 1000, opts(1, 0, 1)).is_err());
     }
 }

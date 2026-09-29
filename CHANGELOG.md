@@ -7,6 +7,13 @@ cut from these changes; version numbers are unchanged.
 ## [Unreleased]
 
 ### Added
+- Wall-clock evaluation horizons: `compare_predictors_wall_clock` and
+  `resolve_wall_clock_targets` in `microprice-eval`, CLI
+  `evaluate-csv --wall-clock-horizons-ms`. Target = quote prevailing at
+  `t + T` (closed boundary, last of tied timestamps, end-of-data candidates
+  dropped and counted). Additional and not pre-registered; the
+  pre-registered event horizons and decision rule are unchanged.
+  `ComparisonReport` gains `horizon_ns`, `n_unresolved`, `mean_events_ahead`.
 - Optional imbalance-mirror symmetrization in calibration
   (`TransitionCounter::symmetrized`, `mirror_state`; CLI `--symmetrize` on
   `train`, `evaluate`, `evaluate-csv`). Off by default; makes `G*` exactly

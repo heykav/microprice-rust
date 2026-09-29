@@ -44,6 +44,11 @@ default and is not used by the pre-registered run.
    (`docs/model-spec.md`, "Martingale diagnostic") of the calibrated model on
    the *training* split. They are descriptive, use no test data and take no
    part in the decision rule.
+3. **Wall-clock horizons (additional).** `--wall-clock-horizons-ms` adds
+   horizons measured in milliseconds, defined by the rule below. They are
+   reported in their own sections, labelled "additional, NOT pre-registered",
+   and are never the primary or secondary comparison. The event horizons
+   `1, 10, 100` and the primary horizon 10 are unchanged.
 
 ## Data
 
@@ -141,6 +146,31 @@ match case-insensitively.
      `I = Qb / (Qb + Qa)`;
   3. **calibrated micro-price**: `mid_i + G*[state_i]`.
 * **Price-changing observation.** One where target != current mid.
+
+## Wall-clock horizon rule (additional analysis)
+
+For the prediction at event `i` (timestamp `t_i`) and horizon `T`, the target
+is the mid of the **quote prevailing at time `t_i + T`**: the last event whose
+timestamp is `<= t_i + T`. Precisely:
+
+* **Boundary is closed on the right.** A quote stamped exactly `t_i + T` is
+  the target; one stamped `t_i + T + 1 ns` is not (the earlier quote still
+  prevails).
+* **Ties.** If several events share the prevailing timestamp, the last of
+  them (in row order) is used.
+* **Quiet window.** If no event lies in `(t_i, t_i + T]`, the prevailing
+  quote is event `i` itself: target mid = current mid, the observation is
+  kept.
+* **End of data.** A candidate whose deadline `t_i + T` is after the last
+  timestamp in the test slice is dropped and **counted** ("Candidates
+  dropped because the data ends..."), because the prevailing quote there is
+  unknown.
+* Timestamps must be non-decreasing (ingestion already enforces this).
+* The bootstrap block length defaults to `max(1000, 10 x ceil(mean events
+  between prediction and target))`, reported per horizon.
+* Calibration is unchanged (event-to-event); only the evaluation target
+  differs, so the model is asked about a time scale it was not fitted for.
+  That mismatch is a property of the analysis, not something it corrects.
 
 ## Split
 

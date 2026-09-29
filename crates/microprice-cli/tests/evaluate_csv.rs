@@ -263,3 +263,57 @@ fn primary_horizon_must_be_among_the_horizons() {
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("primary-horizon"));
 }
+
+#[test]
+fn wall_clock_horizons_are_reported_separately_and_labelled_not_preregistered() {
+    let dir = scratch("wallclock");
+    let csv = dir.join("SYNTH-bookTicker.csv");
+    // Rows are exactly 10 ms apart, so a 50 ms horizon is exactly 5 events
+    // ahead, and the last 5 test candidates lack data through t + 50 ms.
+    std::fs::write(&csv, binance_csv(6000)).unwrap();
+    let base = |extra: &[&str]| {
+        let mut a = vec![
+            "evaluate-csv",
+            "--input",
+            csv.to_str().unwrap(),
+            "--format",
+            "binance-bookticker",
+            "--tick-size",
+            "0.1",
+            "--horizons",
+            "5",
+            "--primary-horizon",
+            "5",
+            "--bootstrap-resamples",
+            "0",
+        ];
+        a.extend_from_slice(extra);
+        run(&a)
+    };
+    let out = base(&["--wall-clock-horizons-ms", "50"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert!(text.contains("### Horizon 5 events"));
+    assert!(text.contains("### Wall-clock horizon 50 ms (additional, NOT pre-registered)"));
+    assert!(text.contains("Candidates dropped because the data ends before t + T: 5."));
+    assert!(text.contains("Mean events between prediction and target: 5.00"));
+    // The decision section still refers to the event-horizon report.
+    assert!(text.contains("Pre-registered decision (primary horizon 5)"));
+    assert!(text.contains("primary comparison (MSE vs naive mid)"));
+
+    // Without the flag: no wall-clock section at all.
+    let plain = String::from_utf8_lossy(&base(&[]).stdout).into_owned();
+    assert!(!plain.contains("Wall-clock"));
+
+    // Invalid / unresolvable requests fail loudly.
+    assert!(!base(&["--wall-clock-horizons-ms", "0"]).status.success());
+    assert!(!base(&["--wall-clock-horizons-ms", "abc"]).status.success());
+    let far = base(&["--wall-clock-horizons-ms", "100000000"]);
+    assert!(!far.status.success());
+    assert!(String::from_utf8_lossy(&far.stderr).contains("no candidate has data"));
+    let _ = std::fs::remove_dir_all(&dir);
+}

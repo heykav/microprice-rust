@@ -17,7 +17,8 @@ use microprice_data::csv::{
     read_csv_file, read_lobster_files, CsvIngest, CsvIngestConfig, InvalidRowPolicy, TimestampUnit,
 };
 use microprice_eval::{
-    chronological_split, compare_predictors, CompareOptions, ComparisonReport, Interval,
+    chronological_split, compare_predictors, compare_predictors_wall_clock, CompareOptions,
+    ComparisonReport, Interval,
 };
 
 use crate::train::{calibrate_model, parse_spread_bounds, Calibrated};
@@ -115,6 +116,14 @@ pub struct EvaluateCsvArgs {
     #[arg(long, default_value = "1,10,100")]
     horizons: String,
 
+    /// ADDITIONAL, not pre-registered: comma-separated wall-clock horizons
+    /// in milliseconds (e.g. "100,1000"), evaluated with the rule in
+    /// docs/real-data-evaluation.md (target = quote prevailing at
+    /// t + T, boundary included). Empty (default) = none. Reported after
+    /// the event horizons and never used by the decision rule.
+    #[arg(long, default_value = "")]
+    wall_clock_horizons_ms: String,
+
     /// The one horizon the pre-registered decision rule is applied to. Must
     /// appear in --horizons.
     #[arg(long, default_value_t = 10)]
@@ -177,6 +186,25 @@ fn parse_horizons(s: &str) -> Result<Vec<usize>, BoxErr> {
     Ok(out)
 }
 
+fn parse_wall_clock_ms(s: &str) -> Result<Vec<u64>, BoxErr> {
+    if s.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    s.split(',')
+        .map(|part| {
+            let ms: u64 = part
+                .trim()
+                .parse()
+                .map_err(|e| format!("invalid --wall-clock-horizons-ms entry {part:?}: {e}"))?;
+            if ms == 0 {
+                return Err("wall-clock horizons must be >= 1 ms".into());
+            }
+            ms.checked_mul(1_000_000)
+                .ok_or_else(|| BoxErr::from("wall-clock horizon too large"))
+        })
+        .collect()
+}
+
 fn build_config(args: &EvaluateCsvArgs) -> CsvIngestConfig {
     let mut cfg = match args.format {
         CsvFormatArg::BinanceBookticker => CsvIngestConfig::binance_book_ticker(args.tick_size),
@@ -208,6 +236,7 @@ fn build_config(args: &EvaluateCsvArgs) -> CsvIngestConfig {
 
 pub fn run(args: EvaluateCsvArgs) -> Result<(), BoxErr> {
     let horizons = parse_horizons(&args.horizons)?;
+    let wall_clock_ns = parse_wall_clock_ms(&args.wall_clock_horizons_ms)?;
     if !horizons.contains(&args.primary_horizon) {
         return Err(format!(
             "--primary-horizon {} must be one of --horizons {:?}",
@@ -285,6 +314,20 @@ pub fn run(args: EvaluateCsvArgs) -> Result<(), BoxErr> {
                 horizon: h,
                 bootstrap_resamples: args.bootstrap_resamples,
                 block_len,
+                seed: args.seed,
+            },
+        )?;
+        reports.push(r.rescaled(1.0 / args.resolution as f64));
+    }
+    for &ns in &wall_clock_ns {
+        let r = compare_predictors_wall_clock(
+            model,
+            test,
+            ns,
+            CompareOptions {
+                horizon: 1,
+                bootstrap_resamples: args.bootstrap_resamples,
+                block_len: args.block_len,
                 seed: args.seed,
             },
         )?;
@@ -502,7 +545,22 @@ fn render_markdown(
         args.bootstrap_resamples, args.seed
     );
     for r in reports {
-        let _ = writeln!(s, "### Horizon {} events\n", r.horizon);
+        if let Some(ns) = r.horizon_ns {
+            let _ = writeln!(
+                s,
+                "### Wall-clock horizon {} ms (additional, NOT pre-registered)\n",
+                ns as f64 / 1e6
+            );
+            let _ = writeln!(
+                s,
+                "Target = mid of the quote prevailing at t + T (a quote stamped exactly t + T is \
+                 included). Candidates dropped because the data ends before t + T: {}. Mean events \
+                 between prediction and target: {:.2}. Bootstrap block length {}.\n",
+                r.n_unresolved, r.mean_events_ahead, r.block_len
+            );
+        } else {
+            let _ = writeln!(s, "### Horizon {} events\n", r.horizon);
+        }
         let _ = writeln!(
             s,
             "n evaluated = {} (skipped, unencodable: {}); price-changing observations = {} ({:.1}% up)\n",
@@ -584,7 +642,10 @@ fn render_markdown(
              The verdicts below are exploratory and must not be reported as the pre-registered result.**\n"
         );
     }
-    if let Some(p) = reports.iter().find(|r| r.horizon == args.primary_horizon) {
+    if let Some(p) = reports
+        .iter()
+        .find(|r| r.horizon_ns.is_none() && r.horizon == args.primary_horizon)
+    {
         let _ = writeln!(
             s,
             "- primary comparison (MSE vs naive mid): {}",
