@@ -15,7 +15,7 @@ processing as if it were a site.
 A **static snapshot of one trained model**, not a live connection to the
 Rust binary:
 
-1. A real model was trained with the real pipeline:
+1. A model was trained on the project's **synthetic** generator (not market data) with the project's CLI:
    ```bash
    microprice train --num-events 500000 --num-imbalance-buckets 20 \
        --spread-bucket-bounds "1,2,4" --seed 42
@@ -32,9 +32,12 @@ Rust binary:
    up in the embedded grid — verified by hand against the Rust source, not
    assumed to match.
 
-**What this means in practice:** the numbers you see are real (from an
-actual trained run), and the formula applied to your inputs is the real
-one — but editing the code here doesn't change what the actual Rust
+**What this means in practice:** the numbers you see come from an
+actual run of the trainer, but on synthetic data, so they say nothing about
+real markets. Real-data validation is pre-registered
+([`docs/real-data-evaluation.md`](../docs/real-data-evaluation.md)) but has
+not been run. The formula applied to your inputs is the same one the Rust
+crate uses — but editing the code here doesn't change what the actual Rust
 crate does, and this page can't retrain or evaluate on new data. For
 that, use `microprice train`/`evaluate` (see the repository root
 `README.md`).
@@ -42,7 +45,7 @@ that, use `microprice train`/`evaluate` (see the repository root
 ## SEO metadata on this page
 
 `index.html`'s `<head>` carries a canonical link, Open Graph + Twitter
-Card tags (image: `og-image.png`, a real `microprice visualize` render,
+Card tags (image: `og-image.png`, an actual `microprice visualize` render of the synthetic-trained model,
 not a stock graphic), a `SoftwareSourceCode` JSON-LD block, and a CSP
 matching this project's other public surfaces. `robots.txt` and
 `sitemap.xml` sit alongside `index.html` for the same reason.

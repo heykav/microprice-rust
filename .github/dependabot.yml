@@ -1,0 +1,26 @@
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      cargo-minor-patch:
+        update-types: ["minor", "patch"]
+
+  # microprice-python is its own Cargo workspace with its own Cargo.lock.
+  - package-ecosystem: cargo
+    directory: "/crates/microprice-python"
+    schedule:
+      interval: weekly
+    groups:
+      cargo-python-minor-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      actions-minor-patch:
+        update-types: ["minor", "patch"]

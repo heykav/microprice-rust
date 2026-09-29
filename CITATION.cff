@@ -1,0 +1,20 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata below."
+title: "MicroPrice-Rust"
+abstract: >-
+  Queue-imbalance micro-price estimation for limit order books, in Rust.
+  Research code; evaluated on synthetic data only so far.
+type: software
+authors:
+  - family-names: "Anubhav"
+    given-names: "Krishna"
+version: "0.1.0"
+license: MIT
+repository-code: "https://github.com/heykav/microprice-rust"
+url: "https://heykav.github.io/microprice-rust/"
+keywords:
+  - limit order book
+  - market microstructure
+  - micro-price
+  - queue imbalance
+  - Rust
