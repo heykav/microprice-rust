@@ -1,7 +1,7 @@
 # Python bindings (`microprice-python`)
 
 Phase 13. PyO3 bindings exposing `MicroPriceModel` (load/save/predict/
-metadata) and `train_synthetic` (the same counting → estimation → solving
+predict_batch/metadata) and `train_synthetic` (the same counting → estimation → solving
 pipeline `microprice-cli`'s `train` subcommand runs) to Python.
 
 ## Why this crate isn't in the root Cargo workspace
@@ -82,6 +82,48 @@ and loading a nonexistent model path raises `ValueError` with the
 underlying I/O error message — no panics, no silent `None`/garbage
 returns.
 
+## Batch prediction: `predict_batch`
+
+`MicroPriceModel.predict_batch(bid_price_ticks, bid_qty, ask_price_ticks,
+ask_qty)` is the vectorised form of `predict`: four 1-D integer columns of
+equal length in, one dict of equal-length columns out.
+
+```python
+import numpy as np
+import microprice_python as mp
+
+model = mp.train_synthetic(num_events=200_000, num_imbalance_buckets=10,
+                           spread_bucket_bounds_ticks=[1, 2, 4], seed=42)
+out = model.predict_batch(
+    np.array([10000, 10000, 10001]), np.array([500, 900, 10]),   # bid px, bid qty
+    np.array([10002, 10002, 10003]), np.array([500, 100, 990]),  # ask px, ask qty
+)
+out["microprice_ticks"]   # [..., ..., ...]  (list of floats)
+out["p_up"]               # list; None where the state has no directional evidence
+```
+
+- **Inputs.** Prices are integer ticks (`int64`); quantities are non-negative
+  integers. Any contiguous 1-D `int64`/`uint64` buffer is read directly
+  (NumPy arrays, `array.array('q'/'Q')`); otherwise any sequence of Python
+  ints (list, tuple) works. NumPy is **not** a dependency of the package or of
+  CI; it is used only if you pass it. Floats are rejected, not truncated.
+- **Output.** A dict with the same keys as `predict`
+  (`mid_ticks`, `weighted_mid_ticks`, `microprice_ticks`, `adjustment_ticks`,
+  `state_id`, `state_observations`, `p_up`), each a Python list of length
+  `n`. Row `k` equals `predict` on the `k`-th book (checked by the smoke test).
+  Wrap columns in `np.asarray` if you want arrays. It is a convenience over
+  the Rust batch path, not a claim about speed.
+- **Errors.** Mismatched column lengths, non-integer columns, negative
+  quantities and invalid books (crossed/locked, both sizes zero) raise
+  `ValueError`; row-level problems name the first offending row index
+  (`"row 3: ..."`). No partial result is returned.
+- **Empty input** returns empty columns.
+
+Tests live in `docs/python_bindings_smoke_test.py` (`check_predict_batch`),
+which CI's `python-bindings` job runs against a freshly built wheel: row-wise
+agreement with `predict`, list/tuple/`array.array` (and NumPy when installed)
+inputs, empty batches, and each error path.
+
 ## What isn't wired up yet
 
 - Only synthetic-data training is exposed (`train_synthetic`) — Parquet
@@ -90,8 +132,6 @@ returns.
   `train_synthetic`, reading events via
   `microprice_data::read_events_from_parquet` instead of the synthetic
   generator) but hasn't been done.
-- Batch prediction (`MicroPriceModel::predict_batch`) is not exposed —
-  only the scalar `predict`.
 - No PyPI publishing/CI wheel-building workflow exists yet; `maturin
   develop` (editable, local) is the only verified installation path so
   far.

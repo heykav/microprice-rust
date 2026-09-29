@@ -169,7 +169,7 @@ replication. Known differences:
 | `microprice-calibration` | transition counting, estimation, solver, serializable `MicroPriceModel` (bincode + JSON sidecar, validated on load) |
 | `microprice-eval` | chronological split, metrics, `compare_predictors` (paired baselines with block-bootstrap intervals) |
 | `microprice-cli` | `microprice` binary: `train`, `predict`, `inspect`, `benchmark`, `evaluate`, `evaluate-csv`, `visualize` |
-| `microprice-python` | PyO3 bindings (`load`/`save`/`predict`/`metadata`, `train_synthetic`); its own Cargo workspace, built with `maturin`, see [`docs/python-bindings.md`](docs/python-bindings.md). No `predict_batch` or Parquet/CSV ingestion from Python yet. |
+| `microprice-python` | PyO3 bindings (`load`/`save`/`predict`/`predict_batch`/`metadata`, `train_synthetic`); its own Cargo workspace, built with `maturin`, see [`docs/python-bindings.md`](docs/python-bindings.md). No Parquet/CSV ingestion from Python yet. |
 
 `microprice-cli` `train` and `evaluate` use the synthetic generator only;
 `evaluate-csv` is the real-data entry point. Parquet reading is a library
@@ -219,10 +219,10 @@ model serialization; CLI (`train`, `predict`, `inspect`, `benchmark`,
 plots via `plotters`); CSV ingestion and `evaluate-csv`; profiling.
 
 Added since: optional imbalance symmetrization, a martingale diagnostic,
-and wall-clock evaluation horizons (additional, not pre-registered).
+wall-clock evaluation horizons (additional, not pre-registered), and
+`predict_batch` in the Python bindings.
 
-Not done: a real-data result; `predict_batch` and
-ingestion in the Python bindings; a measured MSRV.
+Not done: a real-data result; ingestion in the Python bindings; a measured MSRV.
 
 No benchmark numbers, accuracy claims or example predictions are added to this
 README unless they come from a reproducible run on real or explicitly
