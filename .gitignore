@@ -7,3 +7,6 @@ crates/microprice-python/dist
 **/*.rs.bk
 *.pdb
 .DS_Store
+
+# Downloaded vendor data (licensing: never commit) and local outputs
+/data/

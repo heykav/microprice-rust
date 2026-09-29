@@ -8,11 +8,15 @@
 
 #![forbid(unsafe_code)]
 
+pub mod compare;
 pub mod error;
 pub mod evaluate;
 pub mod metrics;
 pub mod split;
 
+pub use compare::{
+    compare_predictors, CompareOptions, ComparisonReport, DirectionStats, Interval, LossStats,
+};
 pub use error::EvalError;
 pub use evaluate::{evaluate as evaluate_model, EvalReport};
 pub use split::chronological_split;
