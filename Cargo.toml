@@ -13,6 +13,13 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/heykav/microprice-rust"
+homepage = "https://github.com/heykav/microprice-rust"
+readme = "README.md"
+keywords = ["microprice", "order-book", "market-microstructure", "quant", "finance"]
+categories = ["finance", "algorithms"]
+authors = ["Krishna Anubhav"]
+# No rust-version: the minimum supported Rust version has not been measured
+# (CI builds on current stable only; some dependencies declare 1.85-1.86).
 
 [workspace.dependencies]
 microprice-core = { path = "crates/microprice-core", version = "0.1.0" }

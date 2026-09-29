@@ -4,7 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Chronological out-of-sample evaluation framework for MicroPrice-Rust (Phase 11)."
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+authors.workspace = true
+description = "Chronological out-of-sample evaluation for MicroPrice-Rust: split, error metrics, and paired baseline comparison with bootstrap intervals."
 
 [dependencies]
 microprice-core.workspace = true

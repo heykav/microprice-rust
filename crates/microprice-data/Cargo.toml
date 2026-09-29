@@ -4,7 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Market data source adapters for MicroPrice-Rust: a MarketDataSource trait, a deterministic synthetic event generator, and (behind the parquet-ingestion feature) Parquet ingestion."
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+authors.workspace = true
+description = "Market data adapters for MicroPrice-Rust: a deterministic synthetic event generator, Level-1 CSV ingestion (generic, Binance bookTicker, LOBSTER), and optional Parquet."
 
 [dependencies]
 microprice-core.workspace = true

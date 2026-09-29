@@ -4,7 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Core primitive types for MicroPrice-Rust: prices, quantities, top-of-book, and queue imbalance."
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+authors.workspace = true
+description = "Core types for MicroPrice-Rust: integer-tick prices, quantities, validated top-of-book, queue imbalance, and state discretization."
 
 [dependencies]
 thiserror.workspace = true

@@ -4,7 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Transition estimation, the micro-price solver, and model artifacts for MicroPrice-Rust (Phases 5-9)."
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+authors.workspace = true
+description = "Transition counting, estimation, the micro-price fixed-point solver, and serializable model artifacts for MicroPrice-Rust."
 
 [dependencies]
 microprice-core.workspace = true
