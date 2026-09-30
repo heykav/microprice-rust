@@ -211,7 +211,7 @@ pub fn calibrate_model(
         g_star,
         estimated.p_up.clone(),
         estimated.visits.clone(),
-    );
+    )?;
     Ok(Calibrated {
         model,
         martingale,
@@ -242,7 +242,7 @@ pub fn run(args: TrainArgs) -> Result<(), Box<dyn std::error::Error>> {
 
     let imbalance = microprice_core::ImbalanceBucketing::new(args.common.num_imbalance_buckets)?;
     let spread = microprice_core::SpreadBucketing::new(spread_bounds.clone())?;
-    let state_space = StateSpaceConfig::new(imbalance, spread);
+    let state_space = StateSpaceConfig::new(imbalance, spread)?;
 
     let mut generator = SyntheticEventGenerator::new(args.common.synthetic_config())?;
 

@@ -14,7 +14,7 @@
 //!
 //! ```text
 //! Q[i][j] = (count[i][j] + alpha) / (visits[i] + alpha * (state_count + 1))
-//! G1[i]   = delta_sum[i] / (visits[i] + alpha)
+//! G1[i]   = delta_sum[i] / (visits[i] + alpha * (state_count + 1))
 //! p_up[i] = (up_moves[i] + alpha) / (up_moves[i] + down_moves[i] + 2 * alpha)
 //! ```
 //!
@@ -25,6 +25,22 @@
 //! never-observed state gets `G1 = 0` when `alpha > 0` — "no information"
 //! rather than "confidently no adjustment", since it shrinks toward, but
 //! isn't forced to, exactly the unsmoothed value as `visits` grows).
+//!
+//! **One denominator for `Q`, `r` and `G1`.** All three share
+//! `visits[i] + alpha * (state_count + 1)`, so every row describes one
+//! proper (sub-)probability model: the `state_count` no-change outcomes
+//! (mass `q`), the observed price changes (mass `r`, carrying the observed
+//! deltas), and the lumped "price changed" pseudo-outcome (mass
+//! `alpha / denominator`, prior mean delta zero, absorbing). `G1[i]` is then
+//! exactly the expected one-step mid change under that row, and `G*` is the
+//! expected mid change at the first price change, so
+//! `|G*[i]| <= max |observed delta|` always holds. Before this was fixed
+//! (see `CHANGELOG.md`), `G1` used the smaller denominator
+//! `visits[i] + alpha`, which gave the observed price changes more mass than
+//! `Q` left for them; on a chain where every observed move was `+1` tick the
+//! solved `G*` could exceed 1 tick (regression test:
+//! `g_star_never_exceeds_the_largest_observed_move_when_smoothing`). With
+//! `alpha == 0` both formulas coincide.
 //!
 //! **`p_up`, and why it isn't derivable from `G1`:** the empirical
 //! probability that a step out of state `i` is upward, *conditioned on the
@@ -115,9 +131,10 @@ pub fn estimate(
                 / denom_q;
         }
 
-        let denom_g1 = v as f64 + alpha;
+        // Same denominator as `q`/`r` (see the module docs): the observed
+        // deltas are weighted by exactly the mass `r` gives them.
         let delta_sum = counter.delta_sum(microprice_core::StateId(i as u32));
-        let g1_value = delta_sum as f64 / denom_g1;
+        let g1_value = delta_sum as f64 / denom_q;
         if !g1_value.is_finite() {
             return Err(CalibrationError::InsufficientObservations { state: i as u32 });
         }
@@ -216,6 +233,56 @@ mod tests {
         // With 2000 real observations, alpha=1 barely moves the estimate.
         assert!((unsmoothed.g1[0] - smoothed.g1[0]).abs() < 0.01);
         assert!((unsmoothed.q(0, 0) - smoothed.q(0, 0)).abs() < 0.01);
+    }
+
+    /// Regression test for the `G1` smoothing-denominator defect (see the
+    /// module docs): every observed transition moves the mid by exactly
+    /// `+1` tick, so no probability model can have an expected move until
+    /// the first price change above 1 tick. With the old `visits + alpha`
+    /// denominator this chain solved to `G* ~ 1.157` in every state.
+    #[test]
+    fn g_star_never_exceeds_the_largest_observed_move_when_smoothing() {
+        let mut counter = TransitionCounter::new(3);
+        for from in 0..3u32 {
+            for k in 0..10u32 {
+                counter.record(StateId(from), StateId((from + k) % 3), 1);
+            }
+        }
+        let est = estimate(&counter, SmoothingConfig::new(1.0).unwrap()).unwrap();
+        let g_star = crate::solver::solve(&est, crate::solver::SolverConfig::DEFAULT).unwrap();
+        for (i, g) in g_star.iter().enumerate() {
+            assert!(
+                *g <= 1.0 + 1e-12,
+                "G*[{i}] = {g} exceeds the 1-tick max move"
+            );
+            assert!(*g > 0.0);
+        }
+        // Hand value: G1 = 10/14, row sum of Q = 3/14, G* = G1 / (1 - 3/14).
+        assert!((g_star[0] - (10.0 / 14.0) / (11.0 / 14.0)).abs() < 1e-9);
+    }
+
+    /// `G1` must be the expected one-step move under the same row mass that
+    /// `r` assigns to observed price changes (one shared denominator).
+    #[test]
+    fn g1_is_consistent_with_the_price_changing_mass_under_smoothing() {
+        let mut counter = TransitionCounter::new(2);
+        for _ in 0..7 {
+            counter.record(StateId(0), StateId(1), 2);
+        }
+        for _ in 0..5 {
+            counter.record(StateId(0), StateId(0), 0);
+        }
+        counter.record(StateId(1), StateId(0), 2);
+        let est = estimate(&counter, SmoothingConfig::new(0.5).unwrap()).unwrap();
+        for i in 0..2usize {
+            let r_mass: f64 = est.r[i * 2..i * 2 + 2].iter().sum();
+            // Every observed move is +2 ticks, so E[delta] = 2 * r_mass.
+            assert!((est.g1[i] - 2.0 * r_mass).abs() < 1e-12);
+            // Q + r + the lumped pseudo-outcome's alpha mass sum to 1.
+            let q_mass: f64 = est.q[i * 2..i * 2 + 2].iter().sum();
+            let leak = 0.5 / (est.visits[i] as f64 + 0.5 * 3.0);
+            assert!((q_mass + r_mass + leak - 1.0).abs() < 1e-12);
+        }
     }
 
     #[test]

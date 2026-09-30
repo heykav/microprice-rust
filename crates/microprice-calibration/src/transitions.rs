@@ -361,6 +361,7 @@ mod tests {
             ImbalanceBucketing::new(2).unwrap(),
             SpreadBucketing::new(vec![]).unwrap(), // one catch-all spread bucket
         )
+        .unwrap()
     }
 
     #[test]

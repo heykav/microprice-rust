@@ -22,6 +22,7 @@ bincode.workspace = true
 rand.workspace = true
 rand_chacha.workspace = true
 criterion.workspace = true
+proptest.workspace = true
 microprice-data.workspace = true
 
 [[bench]]

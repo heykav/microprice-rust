@@ -7,6 +7,8 @@
 //! `mid`/`weighted_mid` baselines).
 
 #![forbid(unsafe_code)]
+// Enforces the README claim "no `unwrap()` in library code" (tests exempt).
+#![cfg_attr(not(test), deny(clippy::unwrap_used))]
 
 pub mod compare;
 pub mod error;
@@ -15,8 +17,9 @@ pub mod metrics;
 pub mod split;
 
 pub use compare::{
-    compare_predictors, compare_predictors_wall_clock, resolve_wall_clock_targets, CompareOptions,
-    ComparisonReport, DirectionStats, Interval, LossStats,
+    calibration_by_state, compare_predictors, compare_predictors_next_mid_change,
+    compare_predictors_wall_clock, resolve_next_mid_change_targets, resolve_wall_clock_targets,
+    CompareOptions, ComparisonReport, DirectionStats, Interval, LossStats, StateCalibration,
 };
 pub use error::EvalError;
 pub use evaluate::{evaluate as evaluate_model, EvalReport};

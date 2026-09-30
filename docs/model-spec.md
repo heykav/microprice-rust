@@ -198,7 +198,7 @@ From these:
 
 ```text
 Q[i][j] = count[i][j] / visits[i]              (for j reached with delta == 0)
-G1[i]   = delta_sum[i] / visits[i]
+G1[i]   = delta_sum[i] / visits[i]              (alpha = 0; smoothed forms under "Smoothing")
 ```
 
 `Q` is therefore **sub-stochastic** by construction (`sum_j Q[i][j] <= 1`):
@@ -387,8 +387,26 @@ default one is UNVERIFIED.
 Raw counts can leave `visits[i] == 0` for states never observed during
 calibration (`count[i][j]` and `delta_sum[i]` are then both `0/0`).
 V1 supports **additive (Laplace-style) smoothing**: a configurable
-`alpha >= 0.0` added to every `count[i][j]` before normalizing, and to a
-per-state pseudo-observation before computing `G1`. `alpha == 0.0` (no
+`alpha >= 0.0` added to every `count[i][j]` and to one lumped "price
+changed" pseudo-outcome (prior mean move zero) before normalizing:
+
+```text
+D[i]    = visits[i] + alpha * (n + 1)
+Q[i][j] = (count[i][j] + alpha) / D[i]
+R[i][j] = pc_count[i][j] / D[i]
+G1[i]   = delta_sum[i] / D[i]
+```
+
+All three share the denominator `D[i]`, so each row is one proper
+probability model (`sum_j Q + sum_j R + alpha / D = 1`) and `G1[i]` is the
+expected one-step move under it. Consequently `G*[i]` is the expected mid
+change at the first price change (the pseudo-outcome counting as a change
+of zero) and `|G*[i]| <= max |observed delta|`. Before this was fixed
+(`CHANGELOG.md`, Unreleased) `G1` used `visits[i] + alpha` instead; that gave observed
+price changes more mass than `Q` left for them, and on a chain whose every
+observed move was `+1` tick `G*` came out above 1 tick (regression test in
+`crates/microprice-calibration/src/estimator.rs`). With `alpha = 0` the two
+formulas are identical. `alpha == 0.0` (no
 smoothing) is valid and means a zero-observation state is flagged
 (`InsufficientObservations`) rather than silently producing a `G1` of
 exactly `0.0` that looks like "no adjustment," which would be a

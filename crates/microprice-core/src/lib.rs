@@ -26,7 +26,7 @@
 //! let space = StateSpaceConfig::new(
 //!     ImbalanceBucketing::new(4)?,
 //!     SpreadBucketing::new(vec![1, 2])?,
-//! );
+//! )?;
 //! let state = space.encode(&book)?;
 //! assert_eq!(state.0, 3); // spread bucket 0, imbalance bucket floor(0.75 * 4) = 3
 //! # Ok::<(), Box<dyn std::error::Error>>(())
@@ -36,6 +36,8 @@
 //! `unsafe` is forbidden crate-wide.
 
 #![forbid(unsafe_code)]
+// Enforces the README claim "no `unwrap()` in library code" (tests exempt).
+#![cfg_attr(not(test), deny(clippy::unwrap_used))]
 
 pub mod book;
 pub mod error;

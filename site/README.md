@@ -52,11 +52,15 @@ matching this project's other public surfaces. `robots.txt` and
 
 ## Regenerating the embedded data
 
-There's no permanent export tool in this repo for this (it was a
-one-off `cargo run --example` script, not committed, to avoid carrying
-demo-specific plumbing in the library crates). To refresh `index.html`
-against a different trained model: load the model with
-`microprice_calibration::MicroPriceModel::load`, walk every `StateId` via
-`model.state_space()?.decode(...)` alongside `model.g_star()`/`model.visits()`,
-serialize the result, and replace the `const MODEL = {...}` block in
-`index.html`.
+```bash
+python3 scripts/export_site_model.py   # standard library only; builds the CLI unless MICROPRICE_BIN is set
+```
+
+It retrains the model with the command above (synthetic generator, seed 42),
+reads each of the 80 states' `G*` and visit count back through
+`microprice predict` (checking every representative book encodes to the
+intended state), and rewrites only the `const MODEL = ...` line of
+`index.html`. `G*` is embedded at the 6 decimals `predict` prints. The
+embedded data was last regenerated this way after the smoothed-`G1`
+denominator fix (`CHANGELOG.md`); `og-image.png` was rendered before that
+fix and was not regenerated.
