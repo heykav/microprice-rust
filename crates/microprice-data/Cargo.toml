@@ -16,7 +16,7 @@ microprice-core.workspace = true
 thiserror.workspace = true
 rand.workspace = true
 rand_chacha.workspace = true
-arrow = { version = "59", optional = true, default-features = false }
+arrow = { version = "60", optional = true, default-features = false }
 parquet = { version = "59", optional = true, default-features = false, features = ["arrow"] }
 
 [features]
