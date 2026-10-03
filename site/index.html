@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'" />
 <title>Micro-Price Terminal</title>
-<meta name="description" content="Explore a real, trained queue-imbalance micro-price model live: enter a top-of-book snapshot (bid/ask price and quantity) and see its calibrated adjustment, a g* curve, and the full 80-state calibration grid." />
+<meta name="description" content="Explore a queue-imbalance micro-price model trained on synthetic data (no real-market result yet): enter a top-of-book snapshot (bid/ask price and quantity) and see its calibrated adjustment, a g* curve, and the full 80-state calibration grid." />
 <meta name="keywords" content="limit order book, market microstructure, queue imbalance, micro-price, Markov chain, Rust, quantitative finance, high-frequency trading, order book simulator" />
 <meta name="author" content="Krishna Anubhav" />
 <meta name="robots" content="index, follow, max-image-preview:large" />
@@ -13,19 +13,19 @@
 <meta property="og:type" content="website" />
 <meta property="og:url" content="https://heykav.github.io/microprice-rust/" />
 <meta property="og:title" content="Micro-Price Terminal" />
-<meta property="og:description" content="Explore a real, trained queue-imbalance micro-price model live: enter a top-of-book snapshot (bid/ask price and quantity) and see its calibrated adjustment, a g* curve, and the full 80-state calibration grid." />
+<meta property="og:description" content="Explore a queue-imbalance micro-price model trained on synthetic data (no real-market result yet): enter a top-of-book snapshot (bid/ask price and quantity) and see its calibrated adjustment, a g* curve, and the full 80-state calibration grid." />
 <meta property="og:image" content="https://heykav.github.io/microprice-rust/og-image.png" />
 <meta property="og:image:width" content="900" />
 <meta property="og:image:height" content="600" />
 <meta property="og:site_name" content="MicroPrice-Rust" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="Micro-Price Terminal" />
-<meta name="twitter:description" content="Explore a real, trained queue-imbalance micro-price model live: enter a top-of-book snapshot (bid/ask price and quantity) and see its calibrated adjustment, a g* curve, and the full 80-state calibration grid." />
+<meta name="twitter:description" content="Explore a queue-imbalance micro-price model trained on synthetic data (no real-market result yet): enter a top-of-book snapshot (bid/ask price and quantity) and see its calibrated adjustment, a g* curve, and the full 80-state calibration grid." />
 <meta name="twitter:image" content="https://heykav.github.io/microprice-rust/og-image.png" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='84'%3E%F0%9F%93%89%3C/text%3E%3C/svg%3E" />
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <script type="application/ld+json">
-{"@context":"https://schema.org","@type":"SoftwareSourceCode","name":"MicroPrice-Rust","description":"Explore a real, trained queue-imbalance micro-price model live: enter a top-of-book snapshot (bid/ask price and quantity) and see its calibrated adjustment, a g* curve, and the full 80-state calibration grid.","codeRepository":"https://github.com/heykav/microprice-rust","programmingLanguage":"Rust","author":{"@type":"Person","name":"Krishna Anubhav","url":"https://github.com/heykav"},"license":"https://github.com/heykav/microprice-rust/blob/main/LICENSE"}
+{"@context":"https://schema.org","@type":"SoftwareSourceCode","name":"MicroPrice-Rust","description":"Explore a queue-imbalance micro-price model trained on synthetic data (no real-market result yet): enter a top-of-book snapshot (bid/ask price and quantity) and see its calibrated adjustment, a g* curve, and the full 80-state calibration grid.","codeRepository":"https://github.com/heykav/microprice-rust","programmingLanguage":"Rust","author":{"@type":"Person","name":"Krishna Anubhav","url":"https://github.com/heykav"},"license":"https://github.com/heykav/microprice-rust/blob/main/LICENSE"}
 </script>
 <style>
 :root {
@@ -252,7 +252,7 @@ input[type=number]:focus {
   padding: 4px 9px;
   border-radius: 999px;
 }
-.data-badge.real { background: var(--bid-soft); color: var(--bid); }
+.data-badge.synth { background: var(--bid-soft); color: var(--bid); }
 .data-badge.prior { background: var(--ask-soft); color: var(--ask); }
 
 .readout-rows { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
@@ -306,7 +306,7 @@ footer.model-card code {
   <div class="brand">
     <span class="eyebrow">MicroPrice-Rust · interactive console</span>
     <h1>Micro-Price Terminal</h1>
-    <p>Feed it a top-of-book snapshot; it applies <code class="mono" style="font-size:12.5px">microprice</code> <code class="mono" style="font-size:12.5px">train</code>'s real, calibrated <code class="mono" style="font-size:12.5px">g*</code> grid using the same encoding/lookup formula as <code class="mono" style="font-size:12.5px">predict</code> — a JS reimplementation of that lookup against real trained coefficients, not the Rust binary itself.</p>
+    <p>Feed it a top-of-book snapshot; it applies <code class="mono" style="font-size:12.5px">microprice</code> <code class="mono" style="font-size:12.5px">train</code>'s calibrated <code class="mono" style="font-size:12.5px">g*</code> grid using the same encoding/lookup formula as <code class="mono" style="font-size:12.5px">predict</code> — a JS reimplementation of that lookup against coefficients trained on the project's <b>synthetic</b> generator, not the Rust binary itself. This demo uses synthetic data only. Validation on real market data is pre-registered (<code class="mono" style="font-size:12.5px">docs/real-data-evaluation.md</code>) but has not been run.</p>
   </div>
   <div class="model-badges" id="modelBadges"></div>
 </header>
@@ -374,17 +374,17 @@ footer.model-card code {
     <div>
       <h2 style="margin-bottom:10px;">Why most of the grid is one flat color</h2>
       <p style="font-size:13.5px; color:var(--muted); margin:0 0 10px;">
-        MicroPrice-Rust's synthetic training generator holds the spread fixed once configured — real order books don't, but this generator's own documented job is a reproducible development dataset, not a market simulation. So only <b style="color:var(--ink)">one of the four spread buckets</b> (spread = 2 ticks) ever saw a real transition in this training run.
+        MicroPrice-Rust's synthetic training generator holds the spread fixed once configured — real order books don't, but this generator's own documented job is a reproducible development dataset, not a market simulation. So only <b style="color:var(--ink)">one of the four spread buckets</b> (spread = 2 ticks) ever saw an observed transition in this training run.
       </p>
       <p style="font-size:13.5px; color:var(--muted); margin:0;">
-        Every unvisited state shares an <i>identical</i> g* — a real, correct consequence of Laplace smoothing: with zero observations, every such state gets the same uniform transition row and the same zero-mean prior, so they converge to the same fixed point. Not a bug — verified in <code>docs/benchmarking.md</code>.
+        Every unvisited state shares an <i>identical</i> g* — a correct consequence of Laplace smoothing: with zero observations, every such state gets the same uniform transition row and the same zero-mean prior, so they converge to the same fixed point. Not a bug — verified in <code>docs/benchmarking.md</code>.
       </p>
     </div>
   </div>
 </section>
 
 <footer class="model-card">
-  <p>Trained by the real <code>microprice-cli</code> pipeline: <code id="fTrainCmd"></code></p>
+  <p>Trained on synthetic data by the <code>microprice-cli</code> pipeline: <code id="fTrainCmd"></code></p>
   <p><span id="fMeta"></span></p>
   <p>Source: <a href="https://github.com/heykav/microprice-rust" target="_blank" rel="noopener">github.com/heykav/microprice-rust</a> — see <code>microprice-cli</code>'s <code>train</code>/<code>predict</code>/<code>visualize</code> subcommands for the non-interactive equivalents of everything on this page.</p>
 </footer>
@@ -482,8 +482,8 @@ function render() {
   els.stateChip.textContent = `state ${r.state.state_id}`;
 
   const hasData = r.state.visits > 0;
-  els.dataBadge.textContent = hasData ? 'real training data' : 'smoothing prior only';
-  els.dataBadge.className = 'data-badge ' + (hasData ? 'real' : 'prior');
+  els.dataBadge.textContent = hasData ? 'synthetic training data' : 'smoothing prior only';
+  els.dataBadge.className = 'data-badge ' + (hasData ? 'synth' : 'prior');
 
   els.valMid.textContent = fmt(r.mid, 2);
   els.valWeighted.textContent = fmt(r.weighted, 3);
@@ -653,7 +653,7 @@ function buildHeader() {
     <span class="badge">α = <b>${MODEL.smoothing_alpha}</b></span>
   `;
   els.fTrainCmd.textContent = `microprice train --num-events 500000 --num-imbalance-buckets 20 --spread-bucket-bounds "1,2,4" --seed 42`;
-  els.fMeta.textContent = `Laplace smoothing α=${MODEL.smoothing_alpha}, ${MODEL.states.filter(s=>s.visits>0).length} of ${MODEL.states.length} states with real training visits.`;
+  els.fMeta.textContent = `Laplace smoothing α=${MODEL.smoothing_alpha}, ${MODEL.states.filter(s=>s.visits>0).length} of ${MODEL.states.length} states with synthetic-training visits.`;
 }
 
 ['bidPrice', 'bidQty', 'askPrice', 'askQty'].forEach(id => {
