@@ -17,7 +17,8 @@ fn bench_state_encoding(c: &mut Criterion) {
     let config = StateSpaceConfig::new(
         ImbalanceBucketing::new(20).unwrap(),
         SpreadBucketing::new(vec![1, 2, 4]).unwrap(),
-    );
+    )
+    .unwrap();
     let book = TopOfBook::new(
         PriceTicks(18732),
         Quantity(4200),

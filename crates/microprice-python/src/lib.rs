@@ -289,7 +289,7 @@ fn train_synthetic(
 ) -> PyResult<PyMicroPriceModel> {
     let imbalance = ImbalanceBucketing::new(num_imbalance_buckets).map_err(to_py_err)?;
     let spread = SpreadBucketing::new(spread_bucket_bounds_ticks.clone()).map_err(to_py_err)?;
-    let state_space = StateSpaceConfig::new(imbalance, spread);
+    let state_space = StateSpaceConfig::new(imbalance, spread).map_err(to_py_err)?;
 
     let synth_config = SyntheticConfig {
         symbol: SymbolId(symbol_id),
@@ -335,7 +335,8 @@ fn train_synthetic(
         g_star,
         estimated.p_up.clone(),
         estimated.visits.clone(),
-    );
+    )
+    .map_err(to_py_err)?;
     Ok(PyMicroPriceModel { inner })
 }
 

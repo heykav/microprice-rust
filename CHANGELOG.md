@@ -6,7 +6,41 @@ cut from these changes; version numbers are unchanged.
 
 ## [Unreleased]
 
+### Fixed
+- Smoothed `G1` denominator: with `alpha > 0`, `G1[i]` was
+  `delta_sum[i] / (visits[i] + alpha)` while `Q`/`R` used
+  `visits[i] + alpha (n + 1)`, so a row was not one probability distribution
+  and `G*` could exceed the largest observed move (a 3-state chain whose
+  every move was `+1` tick gave `G*` of about 1.157). All three now share one
+  denominator; unchanged for `alpha = 0`. Regression and property tests
+  added; README numbers, figures and the demo's embedded model regenerated
+  (horizon-1 synthetic MAE 0.1094 -> 0.1093). Recorded as amendment 5 in
+  `docs/real-data-evaluation.md` (made before any real data was seen).
+- `StateSpaceConfig::new` now returns `Result` and rejects bucket counts
+  whose product overflows `u32`; previously a model file declaring such a
+  state space loaded and then panicked (debug) or indexed out of bounds
+  (release) on `predict`.
+- `MicroPriceModel::new` now returns `Result` and runs the same validation as
+  `load`; `predict` returns an error instead of panicking on an unvalidated
+  model.
+- `MicroPriceModel::predict` cloned the spread bounds (a heap allocation) on
+  every call although documented as allocation-free; the state space is now
+  cached in the model.
+
 ### Added
+- `compare_predictors_next_mid_change` / `resolve_next_mid_change_targets`
+  (target = mid at the first later mid change, the quantity `G*` estimates)
+  and `calibration_by_state` (per-state reliability table) in
+  `microprice-eval`. `microprice evaluate` now also prints a paired MSE/MAE
+  comparison with block-bootstrap intervals at the fixed horizon and at the
+  next mid change (`--bootstrap-resamples`), and `--calibration-table`.
+  Additional analyses; `evaluate-csv` and the pre-registered protocol are
+  unchanged.
+- Property tests for the estimator/solver
+  (`crates/microprice-calibration/tests/properties.rs`).
+- Figures: paired MSE differences with intervals, per-state reliability
+  (`scripts/make_figures.py`); `scripts/export_site_model.py` regenerates the
+  demo page's embedded model.
 - Visuals: README banner and crate-layout diagram (dark/light SVG), figures
   regenerated from CLI output by `scripts/make_figures.py` (G* heatmap, MAE
   comparison, martingale drift vs fixed-point residual; all synthetic data),

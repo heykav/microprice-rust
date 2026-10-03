@@ -55,6 +55,20 @@ default and is not used by the pre-registered run.
    changes no protocol setting; the Binance/LOBSTER data of this document is
    still ingested through CSV.
 
+Dated 2026-09-30, again before any real-data result existed or was looked
+at. Unlike 1-4, this one **does change the pre-registered model**, because
+it is a bug fix:
+
+5. **Smoothed `G1` denominator (defect fix).** With `alpha > 0`, `G1[i]`
+   was `delta_sum[i] / (visits[i] + alpha)` while `Q` and `R` used
+   `visits[i] + alpha (n + 1)`, so a row's observed price changes carried
+   more mass than `Q` left for them and `G*` could exceed the largest
+   observed move. All three now share `visits[i] + alpha (n + 1)`
+   (`docs/model-spec.md`, "Smoothing"). The configuration table (including
+   `alpha = 0.5`), split, horizons, predictors and decision rule are
+   unchanged; the fix only changes `G1` for states whose visit count is not
+   large relative to `alpha (n + 1)`.
+
 ## Data
 
 ### Binance USD-M futures `bookTicker` (public, no credentials)

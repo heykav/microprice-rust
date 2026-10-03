@@ -12,6 +12,8 @@
 //! presets).
 
 #![forbid(unsafe_code)]
+// Enforces the README claim "no `unwrap()` in library code" (tests exempt).
+#![cfg_attr(not(test), deny(clippy::unwrap_used))]
 
 pub mod csv;
 pub mod error;

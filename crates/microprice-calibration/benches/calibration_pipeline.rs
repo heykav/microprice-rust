@@ -16,7 +16,10 @@ use std::hint::black_box;
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 
-use microprice_calibration::{estimate, solve, SmoothingConfig, SolverConfig, TransitionCounter};
+use microprice_calibration::{
+    estimate, solve, MicroPriceModel, ModelMetadata, SmoothingConfig, SolverConfig,
+    TransitionCounter, SCHEMA_VERSION,
+};
 use microprice_core::{BookEvent, ImbalanceBucketing, SpreadBucketing, StateSpaceConfig};
 use microprice_data::{MarketDataSource, SyntheticConfig, SyntheticEventGenerator};
 
@@ -43,6 +46,7 @@ fn state_space() -> StateSpaceConfig {
         ImbalanceBucketing::new(20).unwrap(),
         SpreadBucketing::new(vec![1, 2, 4]).unwrap(),
     )
+    .unwrap()
 }
 
 fn bench_observe_events(c: &mut Criterion) {
@@ -83,5 +87,47 @@ fn bench_estimate_and_solve(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_observe_events, bench_estimate_and_solve);
+/// `predict` on a calibrated 80-state model with spread bounds `[1, 2, 4]`,
+/// plus the same call preceded by one `state_space()` rebuild: that rebuild
+/// (which clones the spread bounds) is what `predict` did on every call
+/// before the state space was cached in the model.
+fn bench_predict(c: &mut Criterion) {
+    let events = generate_events(100_000, 42);
+    let space = state_space();
+    let mut counter = TransitionCounter::new(space.state_count());
+    counter.observe_events(&space, &events).unwrap();
+    let est = estimate(&counter, SmoothingConfig::new(0.5).unwrap()).unwrap();
+    let g_star = solve(&est, SolverConfig::DEFAULT).unwrap();
+    let model = MicroPriceModel::new(
+        ModelMetadata {
+            schema_version: SCHEMA_VERSION,
+            symbol_id: 1,
+            num_imbalance_buckets: 20,
+            spread_bucket_bounds_ticks: vec![1, 2, 4],
+            smoothing_alpha: 0.5,
+            training_observations: counter.total_observations(),
+        },
+        g_star,
+        est.p_up.clone(),
+        est.visits.clone(),
+    )
+    .unwrap();
+    let book = events[50_000].book;
+    c.bench_function("predict_single", |b| {
+        b.iter(|| black_box(model.predict(black_box(&book)).unwrap()));
+    });
+    c.bench_function("predict_single_plus_state_space_rebuild", |b| {
+        b.iter(|| {
+            black_box(model.state_space().unwrap());
+            black_box(model.predict(black_box(&book)).unwrap())
+        });
+    });
+}
+
+criterion_group!(
+    benches,
+    bench_observe_events,
+    bench_estimate_and_solve,
+    bench_predict
+);
 criterion_main!(benches);

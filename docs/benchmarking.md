@@ -103,3 +103,29 @@ to matter, and is exactly the documented, unimplemented extension
 decision to make *if and when* the state space actually grows that large,
 backed by a new benchmark at that scale — not something to build now on
 spec.
+
+## Prediction (`MicroPriceModel::predict`)
+
+**Measured:** 2026-09-30, on branch `claude/enhance` (the change that caches
+the state space in the model).
+**Hardware:** a shared cloud VM, 4 vCPUs reported as "Intel(R) Xeon(R)
+Processor @ 2.10GHz", Linux 6.18. Other workloads were running on the
+host; treat these as rough, not as a property of the code.
+**Toolchain:** `rustc 1.94.1 (e408947bf 2026-03-25)`, `cargo bench`
+(optimized), run as
+`cargo bench -p microprice-calibration --bench calibration_pipeline -- predict --warm-up-time 2 --measurement-time 5`.
+**Benchmark:** `bench_predict` in
+`crates/microprice-calibration/benches/calibration_pipeline.rs`: an 80-state
+model (20 imbalance x 4 spread buckets, bounds `[1, 2, 4]`) calibrated on
+100,000 synthetic events, one fixed book.
+
+| Benchmark | Result (Criterion 95% interval) |
+|---|---|
+| `predict_single` | 19.46-20.18 ns/iter |
+| `predict_single_plus_state_space_rebuild` (one `state_space()` rebuild, then `predict`) | 51.09-54.71 ns/iter |
+
+The second row approximates what `predict` cost per call before the state
+space was cached (it rebuilt it, cloning the spread bounds, on every call);
+it is a stand-in measured on the new code, not a run of the old commit.
+Not comparable with the Apple M3 Pro numbers above (different machine and
+toolchain).
