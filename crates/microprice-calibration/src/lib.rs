@@ -16,7 +16,7 @@
 //!     SpreadBucketing, StateSpaceConfig, SymbolId, TopOfBook,
 //! };
 //!
-//! let space = StateSpaceConfig::new(ImbalanceBucketing::new(2)?, SpreadBucketing::new(vec![])?);
+//! let space = StateSpaceConfig::new(ImbalanceBucketing::new(2)?, SpreadBucketing::new(vec![])?)?;
 //! let event = |seq: u64, bid: i64, bq: u64, aq: u64| -> Result<BookEvent, Box<dyn std::error::Error>> {
 //!     Ok(BookEvent {
 //!         timestamp_ns: seq,
@@ -50,7 +50,7 @@
 //!     g_star,
 //!     estimated.p_up.clone(),
 //!     estimated.visits.clone(),
-//! );
+//! )?;
 //! let estimate = model.predict(&events[1].book)?;
 //! assert_eq!(estimate.mid_ticks, 101.0);
 //! assert_eq!(estimate.microprice_ticks, estimate.mid_ticks + estimate.adjustment_ticks);
@@ -58,6 +58,8 @@
 //! ```
 
 #![forbid(unsafe_code)]
+// Enforces the README claim "no `unwrap()` in library code" (tests exempt).
+#![cfg_attr(not(test), deny(clippy::unwrap_used))]
 
 pub mod diagnostics;
 pub mod error;

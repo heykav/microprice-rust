@@ -342,7 +342,7 @@ pub fn evaluate_and_report(
     let state_space = StateSpaceConfig::new(
         ImbalanceBucketing::new(common.num_imbalance_buckets)?,
         SpreadBucketing::new(bounds_units.clone())?,
-    );
+    )?;
 
     eprintln!(
         "Calibrating on {} train events, evaluating on {} test events ...",

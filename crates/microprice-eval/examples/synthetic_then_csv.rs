@@ -82,7 +82,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let space = StateSpaceConfig::new(
         ImbalanceBucketing::new(10)?,
         SpreadBucketing::new(bounds_units.clone())?,
-    );
+    )?;
     let mut counter = TransitionCounter::new(space.state_count());
     counter.observe_events(&space, train)?;
     let estimated = estimate(&counter, SmoothingConfig::new(0.5)?)?;
@@ -99,7 +99,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         g_star,
         estimated.p_up.clone(),
         estimated.visits.clone(),
-    );
+    )?;
 
     let r = compare_predictors(
         &model,

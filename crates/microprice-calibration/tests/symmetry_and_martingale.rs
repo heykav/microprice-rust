@@ -262,6 +262,7 @@ fn space(n_imb: u32) -> StateSpaceConfig {
         ImbalanceBucketing::new(n_imb).unwrap(),
         SpreadBucketing::new(vec![2, 4]).unwrap(),
     )
+    .unwrap()
 }
 
 fn counter_for(events: &[BookEvent], sp: &StateSpaceConfig) -> TransitionCounter {
@@ -356,7 +357,8 @@ fn symmetrized_model_predicts_mirrored_books_with_opposite_adjustments() {
         g,
         est.p_up.clone(),
         est.visits.clone(),
-    );
+    )
+    .unwrap();
     let mk = |bid: i64, bq: u64, ask: i64, aq: u64| {
         TopOfBook::new(
             PriceTicks(bid),
@@ -391,7 +393,8 @@ fn symmetrization_makes_the_full_chain_series_converge_without_smoothing() {
     let sp = StateSpaceConfig::new(
         ImbalanceBucketing::new(n_imb).unwrap(),
         SpreadBucketing::new(vec![]).unwrap(),
-    );
+    )
+    .unwrap();
     let events = synthetic_events(200_000, 21);
     let c = counter_for(&events, &sp).symmetrized(n_imb).unwrap();
     let est = estimate(&c, SmoothingConfig::NONE).unwrap();

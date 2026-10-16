@@ -95,8 +95,12 @@ pub struct DirectionStats {
 /// Result of [`compare_predictors`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ComparisonReport {
-    /// Event horizon; `0` for a wall-clock report (see `horizon_ns`).
+    /// Event horizon; `0` for a wall-clock report (see `horizon_ns`) or a
+    /// next-mid-change report (see `next_mid_change`).
     pub horizon: usize,
+    /// `true` for a report from [`compare_predictors_next_mid_change`]: the
+    /// target was the mid of the first later event whose mid differs.
+    pub next_mid_change: bool,
     /// `Some(T)` for a wall-clock horizon of `T` nanoseconds, else `None`.
     pub horizon_ns: Option<u64>,
     /// Wall-clock only: candidates dropped because the data ends before
@@ -182,7 +186,7 @@ pub fn compare_predictors(
     let pairs: Vec<(usize, usize)> = (0..events.len() - options.horizon)
         .map(|i| (i, i + options.horizon))
         .collect();
-    compare_pairs(model, events, &pairs, options, None, 0)
+    compare_pairs(model, events, &pairs, options, None, 0, false)
 }
 
 /// Resolves, for each candidate event `i`, the index of the quote
@@ -288,7 +292,137 @@ pub fn compare_predictors_wall_clock(
             pairs.iter().map(|(i, j)| (j - i) as f64).sum::<f64>() / pairs.len() as f64;
         options.block_len = 1000.max(10 * mean_ahead.ceil() as usize);
     }
-    compare_pairs(model, events, &pairs, options, Some(horizon_ns), unresolved)
+    compare_pairs(
+        model,
+        events,
+        &pairs,
+        options,
+        Some(horizon_ns),
+        unresolved,
+        false,
+    )
+}
+
+/// For each event `i`, the index of the first later event whose exact mid
+/// (`(bid + ask) / 2`) differs from event `i`'s. Returns the `(i, target)`
+/// pairs and the number of trailing candidates with no later mid change in
+/// the slice (dropped, not assumed unchanged). `O(n)`.
+pub fn resolve_next_mid_change_targets(events: &[BookEvent]) -> (Vec<(usize, usize)>, usize) {
+    let n = events.len();
+    // Doubled mids are exact integers, so equality is exact.
+    let mid2 = |e: &BookEvent| i128::from(e.book.bid_price.0) + i128::from(e.book.ask_price.0);
+    let mut next: Vec<Option<usize>> = vec![None; n];
+    for i in (0..n.saturating_sub(1)).rev() {
+        next[i] = if mid2(&events[i + 1]) != mid2(&events[i]) {
+            Some(i + 1)
+        } else {
+            // Event i+1 has the same mid as i, so its first change is ours.
+            next[i + 1]
+        };
+    }
+    let pairs: Vec<(usize, usize)> = next
+        .iter()
+        .enumerate()
+        .filter_map(|(i, j)| j.map(|j| (i, j)))
+        .collect();
+    let unresolved = n - pairs.len();
+    (pairs, unresolved)
+}
+
+/// Runs the paired comparison with the target set to the mid at the
+/// **next mid change** after each event (see
+/// [`resolve_next_mid_change_targets`]).
+///
+/// This is the quantity the default `G*` estimates by construction: with
+/// `G* = G1 + Q G*`, `mid + G*[s]` is the model's expected mid at the first
+/// price change out of state `s` (`docs/model-spec.md`). A fixed event
+/// horizon instead scores it against a target that, at short horizons, is
+/// usually the unchanged mid. It is an additional analysis, not part of the
+/// pre-registered protocol. `options.horizon` is ignored; `block_len == 0`
+/// means "auto": `max(1000, 10 * ceil(mean events ahead))`.
+pub fn compare_predictors_next_mid_change(
+    model: &MicroPriceModel,
+    events: &[BookEvent],
+    options: CompareOptions,
+) -> Result<ComparisonReport, EvalError> {
+    let (pairs, unresolved) = resolve_next_mid_change_targets(events);
+    if pairs.is_empty() {
+        return Err(EvalError::InsufficientEvents {
+            reason: "the mid never changes in this slice".to_string(),
+        });
+    }
+    let mut options = options;
+    if options.block_len == 0 {
+        let mean_ahead =
+            pairs.iter().map(|(i, j)| (j - i) as f64).sum::<f64>() / pairs.len() as f64;
+        options.block_len = 1000.max(10 * mean_ahead.ceil() as usize);
+    }
+    compare_pairs(model, events, &pairs, options, None, unresolved, true)
+}
+
+/// One row of [`calibration_by_state`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct StateCalibration {
+    pub state_id: u32,
+    /// Scored observations whose book encoded to this state.
+    pub n: usize,
+    /// Training visits of this state (from the model).
+    pub training_visits: u64,
+    /// The model's adjustment `G*[state]` (every observation in a state
+    /// gets the same prediction).
+    pub predicted: f64,
+    /// Mean realized move `target_mid - mid` over the observations.
+    pub realized_mean: f64,
+    /// `sd / sqrt(n)` of the realized moves (`NaN` for `n < 2`). Treats
+    /// observations as independent, which overlapping, serially dependent
+    /// targets are not: read it as a lower bound on the uncertainty.
+    pub realized_naive_se: f64,
+}
+
+/// Reliability table: for every state that occurs among the `(candidate,
+/// target)` pairs, the model's predicted adjustment next to the mean
+/// realized move `exact_mid(target) - exact_mid(candidate)`. A well
+/// calibrated model has `realized_mean ~ predicted` in every state. Pairs
+/// whose book cannot be encoded are skipped. Sorted by `state_id`.
+pub fn calibration_by_state(
+    model: &MicroPriceModel,
+    events: &[BookEvent],
+    pairs: &[(usize, usize)],
+) -> Vec<StateCalibration> {
+    // (n, sum, sum of squares, predicted) per state.
+    let mut acc: std::collections::BTreeMap<u32, (usize, f64, f64, f64)> =
+        std::collections::BTreeMap::new();
+    for &(i, j) in pairs {
+        let Ok(est) = model.predict(&events[i].book) else {
+            continue;
+        };
+        let moved = exact_mid(&events[j]) - exact_mid(&events[i]);
+        let e = acc
+            .entry(est.state_id)
+            .or_insert((0, 0.0, 0.0, est.adjustment_ticks));
+        e.0 += 1;
+        e.1 += moved;
+        e.2 += moved * moved;
+    }
+    acc.into_iter()
+        .map(|(state_id, (n, sum, sumsq, predicted))| {
+            let mean = sum / n as f64;
+            let se = if n < 2 {
+                f64::NAN
+            } else {
+                let var = ((sumsq - n as f64 * mean * mean) / (n as f64 - 1.0)).max(0.0);
+                (var / n as f64).sqrt()
+            };
+            StateCalibration {
+                state_id,
+                n,
+                training_visits: model.visits().get(state_id as usize).copied().unwrap_or(0),
+                predicted,
+                realized_mean: mean,
+                realized_naive_se: se,
+            }
+        })
+        .collect()
 }
 
 /// Shared core: evaluates the `(candidate, target)` index pairs.
@@ -299,6 +433,7 @@ fn compare_pairs(
     options: CompareOptions,
     horizon_ns: Option<u64>,
     n_unresolved: usize,
+    next_mid_change: bool,
 ) -> Result<ComparisonReport, EvalError> {
     if options.block_len == 0 {
         return Err(EvalError::InsufficientEvents {
@@ -368,11 +503,12 @@ fn compare_pairs(
     };
 
     Ok(ComparisonReport {
-        horizon: if horizon_ns.is_some() {
+        horizon: if horizon_ns.is_some() || next_mid_change {
             0
         } else {
             options.horizon
         },
+        next_mid_change,
         horizon_ns,
         n_unresolved,
         mean_events_ahead: ahead_sum / n as f64,
@@ -505,6 +641,7 @@ mod tests {
             vec![Some(0.5), Some(0.5)],
             vec![100, 50],
         )
+        .unwrap()
     }
 
     fn ev(seq: u64, mid: i64) -> BookEvent {
@@ -564,6 +701,57 @@ mod tests {
     }
 
     #[test]
+    fn next_mid_change_targets_skip_unchanged_mids_and_drop_the_tail() {
+        // mids: 10, 10, 11, 11, 11, 10, 10
+        let mids = [10, 10, 11, 11, 11, 10, 10];
+        let events: Vec<_> = mids
+            .iter()
+            .enumerate()
+            .map(|(i, m)| ev(i as u64, *m))
+            .collect();
+        let (pairs, unresolved) = resolve_next_mid_change_targets(&events);
+        assert_eq!(pairs, vec![(0, 2), (1, 2), (2, 5), (3, 5), (4, 5)]);
+        // Events 5 and 6 have no later change in the slice.
+        assert_eq!(unresolved, 2);
+        assert_eq!(resolve_next_mid_change_targets(&[]), (vec![], 0));
+    }
+
+    #[test]
+    fn next_mid_change_report_scores_against_the_changed_mid() {
+        // mids 10001, 10001, 10002: both candidates target event 2 (10002).
+        let events = vec![ev(0, 10001), ev(1, 10001), ev(2, 10002)];
+        let r = compare_predictors_next_mid_change(&model(), &events, opts(99, 0, 1)).unwrap();
+        assert!(r.next_mid_change);
+        assert_eq!(r.horizon, 0);
+        assert_eq!(r.n_evaluated, 2);
+        assert_eq!(r.n_unresolved, 1);
+        assert_eq!(r.n_price_changing, 2);
+        assert!((r.mean_events_ahead - 1.5).abs() < 1e-12);
+        // mid error -1 twice; micro error 0.225 - 1 = -0.775 twice.
+        assert!((r.mid.mse - 1.0).abs() < 1e-12);
+        assert!((r.microprice.mae - 0.775).abs() < 1e-12);
+        // No change at all -> an error, not an empty report.
+        let flat = vec![ev(0, 10001), ev(1, 10001)];
+        assert!(compare_predictors_next_mid_change(&model(), &flat, opts(1, 0, 1)).is_err());
+    }
+
+    #[test]
+    fn calibration_table_groups_realized_moves_by_state() {
+        // Balanced books -> state 1 (G* = 0.225). Next-change targets:
+        // 10001 -> 10002 (+1) twice, 10002 -> 10001 (-1) once.
+        let events = vec![ev(0, 10001), ev(1, 10001), ev(2, 10002), ev(3, 10001)];
+        let (pairs, _) = resolve_next_mid_change_targets(&events);
+        let table = calibration_by_state(&model(), &events, &pairs);
+        assert_eq!(table.len(), 1);
+        let row = table[0];
+        assert_eq!((row.state_id, row.n, row.training_visits), (1, 3, 50));
+        assert!((row.predicted - 0.225).abs() < 1e-12);
+        assert!((row.realized_mean - 1.0 / 3.0).abs() < 1e-12);
+        // sample sd of {1, 1, -1} = sqrt(4/3); se = sd / sqrt(3) = 2/3.
+        assert!((row.realized_naive_se - 2.0 / 3.0).abs() < 1e-12);
+    }
+
+    #[test]
     fn a_half_tick_mid_is_not_truncated() {
         // bid 10000 / ask 10001: exact mid 10000.5 (integer mid would be 10000).
         let e = |seq: u64, bid: i64| BookEvent {
@@ -615,7 +803,8 @@ mod tests {
             vec![0.0, 0.0],
             vec![None, None],
             vec![1, 1],
-        );
+        )
+        .unwrap();
         let events: Vec<_> = (0..100).map(|i| ev(i, 10_000 + (i % 3) as i64)).collect();
         let r = compare_predictors(&zero, &events, opts(1, 100, 10)).unwrap();
         assert_eq!(r.mse_diff_vs_mid.estimate, 0.0);

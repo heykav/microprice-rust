@@ -220,6 +220,7 @@ mod tests {
             p_up,
             vec![100, 50],
         )
+        .unwrap()
     }
 
     fn balanced_event(seq: u64, mid: i64) -> BookEvent {

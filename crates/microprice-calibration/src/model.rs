@@ -52,6 +52,13 @@ pub struct MicroPriceModel {
     /// recovers the up/down split. See `crate::estimator`'s module docs.
     p_up: Vec<Option<f64>>,
     visits: Vec<u64>,
+    /// The state space rebuilt from `metadata`, cached so that `predict`
+    /// does not clone `spread_bucket_bounds_ticks` (a heap allocation) on
+    /// every call. Not serialized; filled by [`MicroPriceModel::new`] and
+    /// [`MicroPriceModel::load`]. A value deserialized some other way has
+    /// `None` here and falls back to rebuilding it per call.
+    #[serde(skip)]
+    state_space: Option<StateSpaceConfig>,
 }
 
 /// A single prediction's full detail — more than one number, per the
@@ -73,18 +80,27 @@ pub struct MicroPriceEstimate {
 }
 
 impl MicroPriceModel {
+    /// Builds a model and runs the same validation as [`Self::load`]:
+    /// supported schema version, a representable state space, `g_star`,
+    /// `p_up` and `visits` each exactly one entry per state, finite `g_star`
+    /// and `p_up` values in `[0, 1]`. A model that passes can never index
+    /// out of bounds in [`Self::predict`].
     pub fn new(
         metadata: ModelMetadata,
         g_star: Vec<f64>,
         p_up: Vec<Option<f64>>,
         visits: Vec<u64>,
-    ) -> Self {
-        MicroPriceModel {
+    ) -> Result<Self, CalibrationError> {
+        let mut model = MicroPriceModel {
             metadata,
             g_star,
             p_up,
             visits,
-        }
+            state_space: None,
+        };
+        model.validate()?;
+        model.state_space = Some(model.state_space()?);
+        Ok(model)
     }
 
     pub fn metadata(&self) -> &ModelMetadata {
@@ -122,16 +138,25 @@ impl MicroPriceModel {
             .map_err(CalibrationError::from)?;
         let spread = SpreadBucketing::new(self.metadata.spread_bucket_bounds_ticks.clone())
             .map_err(CalibrationError::from)?;
-        Ok(StateSpaceConfig::new(imbalance, spread))
+        StateSpaceConfig::new(imbalance, spread).map_err(CalibrationError::from)
     }
 
-    /// Allocation-free (aside from the one-time `StateSpaceConfig`
-    /// reconstruction — see the note on `state_space()` above the real
-    /// hot-path concern is `encode` + array lookups, both `O(1)`/alloc-free):
-    /// encode the book's state, look up the calibrated adjustment, and
-    /// compute the micro-price.
+    /// Encodes the book's state, looks up the calibrated adjustment, and
+    /// computes the micro-price. Allocation-free for a model built by
+    /// [`Self::new`] or [`Self::load`] (the state space is cached): one
+    /// `encode` plus three array lookups.
     pub fn predict(&self, book: &TopOfBook) -> Result<MicroPriceEstimate, CalibrationError> {
-        let state_space = self.state_space()?;
+        match &self.state_space {
+            Some(space) => self.predict_with(space, book),
+            None => self.predict_with(&self.state_space()?, book),
+        }
+    }
+
+    fn predict_with(
+        &self,
+        state_space: &StateSpaceConfig,
+        book: &TopOfBook,
+    ) -> Result<MicroPriceEstimate, CalibrationError> {
         let state = state_space.encode(book)?;
         let mid_ticks = book.mid_price_ticks() as f64;
 
@@ -140,15 +165,25 @@ impl MicroPriceModel {
         let weighted_mid_ticks = book.ask_price.0 as f64 * i + book.bid_price.0 as f64 * (1.0 - i);
 
         let idx = state.0 as usize;
-        let adjustment_ticks = self.g_star[idx];
+        // `new`/`load` guarantee one entry per state; a model deserialized
+        // without validation gets an error here instead of a panic.
+        let (Some(&adjustment_ticks), Some(&state_observations), Some(&p_up)) = (
+            self.g_star.get(idx),
+            self.visits.get(idx),
+            self.p_up.get(idx),
+        ) else {
+            return Err(CalibrationError::InvalidModelArtifact {
+                reason: format!("state {idx} has no calibrated entry (unvalidated model)"),
+            });
+        };
         Ok(MicroPriceEstimate {
             mid_ticks,
             weighted_mid_ticks,
             microprice_ticks: mid_ticks + adjustment_ticks,
             adjustment_ticks,
             state_id: state.0,
-            state_observations: self.visits[idx],
-            p_up: self.p_up[idx],
+            state_observations,
+            p_up,
         })
     }
 
@@ -165,25 +200,16 @@ impl MicroPriceModel {
                 actual: output.len(),
             });
         }
-        let state_space = self.state_space()?;
+        let rebuilt;
+        let state_space = match &self.state_space {
+            Some(space) => space,
+            None => {
+                rebuilt = self.state_space()?;
+                &rebuilt
+            }
+        };
         for (book, out) in books.iter().zip(output.iter_mut()) {
-            let state = state_space.encode(book)?;
-            let mid_ticks = book.mid_price_ticks() as f64;
-            let imbalance = Imbalance::compute(book.bid_qty, book.ask_qty)?;
-            let i = imbalance.value();
-            let weighted_mid_ticks =
-                book.ask_price.0 as f64 * i + book.bid_price.0 as f64 * (1.0 - i);
-            let idx = state.0 as usize;
-            let adjustment_ticks = self.g_star[idx];
-            *out = MicroPriceEstimate {
-                mid_ticks,
-                weighted_mid_ticks,
-                microprice_ticks: mid_ticks + adjustment_ticks,
-                adjustment_ticks,
-                state_id: state.0,
-                state_observations: self.visits[idx],
-                p_up: self.p_up[idx],
-            };
+            *out = self.predict_with(state_space, book)?;
         }
         Ok(())
     }
@@ -214,10 +240,11 @@ impl MicroPriceModel {
     /// serialized content" requirement.
     pub fn load(path: impl AsRef<Path>) -> Result<Self, CalibrationError> {
         let bytes = fs::read(path.as_ref()).map_err(|e| CalibrationError::Io(e.to_string()))?;
-        let (model, _): (MicroPriceModel, usize) =
+        let (mut model, _): (MicroPriceModel, usize) =
             bincode::serde::decode_from_slice(&bytes, bincode::config::standard())
                 .map_err(|e| CalibrationError::Serialization(e.to_string()))?;
         model.validate()?;
+        model.state_space = Some(model.state_space()?);
         Ok(model)
     }
 
@@ -294,6 +321,7 @@ mod tests {
             vec![Some(0.6), None],
             vec![100, 50],
         )
+        .unwrap()
     }
 
     /// Saves a deliberately-corrupted `toy_model()` to a unique temp path
@@ -412,6 +440,76 @@ mod tests {
         assert!(json.contains("\"schema_version\""));
 
         fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn new_rejects_vectors_that_do_not_match_the_state_space() {
+        let meta = toy_model().metadata().clone();
+        let err = MicroPriceModel::new(meta, vec![0.1], vec![None], vec![1]).unwrap_err();
+        assert!(matches!(err, CalibrationError::InvalidModelArtifact { .. }));
+    }
+
+    /// Regression test: an artifact whose metadata declares a state count
+    /// that overflows `u32` (here `2^31 x 2 = 2^32`, which wrapped to 0 in
+    /// release builds and matched an empty `g_star`) must fail to load
+    /// with a typed error, not load and then panic on the first predict.
+    #[test]
+    fn load_rejects_a_state_space_whose_size_overflows() {
+        let err = load_corrupted("overflow", |m| {
+            m.metadata.num_imbalance_buckets = 1 << 31;
+            m.metadata.spread_bucket_bounds_ticks = vec![1];
+            m.g_star.clear();
+            m.p_up.clear();
+            m.visits.clear();
+        });
+        assert!(matches!(err, CalibrationError::Core(_)), "{err:?}");
+    }
+
+    #[test]
+    fn predict_is_identical_with_and_without_the_cached_state_space() {
+        let model = MicroPriceModel::new(
+            ModelMetadata {
+                spread_bucket_bounds_ticks: vec![1, 3],
+                ..toy_model().metadata().clone()
+            },
+            vec![0.1, -0.2, 0.3, -0.4, 0.5, -0.6],
+            vec![None; 6],
+            vec![1; 6],
+        )
+        .unwrap();
+        let mut uncached = model.clone();
+        uncached.state_space = None;
+        for (bid, ask, bq, aq) in [(100, 101, 5, 1), (100, 102, 1, 5), (100, 110, 3, 3)] {
+            let book = TopOfBook::new(
+                PriceTicks(bid),
+                Quantity(bq),
+                PriceTicks(ask),
+                Quantity(aq),
+                BookValidationPolicy::RejectCrossedAndLocked,
+            )
+            .unwrap();
+            assert_eq!(
+                model.predict(&book).unwrap(),
+                uncached.predict(&book).unwrap()
+            );
+        }
+    }
+
+    /// A model deserialized without validation must not panic in predict.
+    #[test]
+    fn predict_on_an_unvalidated_short_model_is_an_error_not_a_panic() {
+        let mut model = toy_model();
+        model.g_star.clear();
+        model.state_space = None;
+        let book = TopOfBook::new(
+            PriceTicks(100),
+            Quantity(1),
+            PriceTicks(101),
+            Quantity(1),
+            BookValidationPolicy::RejectCrossedAndLocked,
+        )
+        .unwrap();
+        assert!(model.predict(&book).is_err());
     }
 
     #[test]

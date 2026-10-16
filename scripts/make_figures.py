@@ -13,6 +13,8 @@ Usage (from the repo root):
 
 Environment: CARGO_TARGET_DIR (as for cargo), MICROPRICE_BIN (skip the build).
 Writes docs/img/fig-*-{dark,light}.png and docs/img/figures-data.json.
+Figures: G* heatmap, MAE comparison, martingale drift, paired MSE
+differences with bootstrap intervals, and a per-state reliability plot.
 Output is deterministic for fixed tool versions (no timestamps in PNGs).
 """
 import json
@@ -40,7 +42,7 @@ SPREAD_BOUNDS = "1,2,4"
 SPREAD_REP = [1, 2, 3, 5]
 SPREAD_LABEL = ["<= 1", "2", "3-4", ">= 5"]
 # Values documented in the README; the script fails if a fresh run disagrees.
-EXPECTED = {"microprice": 0.1094, "mid": 0.0988, "symmetrized": 0.1031}
+EXPECTED = {"microprice": 0.1093, "mid": 0.0988, "symmetrized": 0.1031}
 
 THEMES = {
     "light": dict(bg="#ffffff", fg="#1f2328", muted="#59636e", grid="#d1d9e0",
@@ -93,10 +95,29 @@ def surface(bin_: str, tmp: str, symmetrize: bool):
 def evaluate(bin_: str, symmetrize: bool) -> dict:
     cmd = [bin_, "evaluate", "--seed", str(SEED), "--num-events", "300000",
            "--num-imbalance-buckets", str(NUM_IMB),
-           "--spread-bucket-bounds", SPREAD_BOUNDS]
+           "--spread-bucket-bounds", SPREAD_BOUNDS, "--calibration-table"]
     if symmetrize:
         cmd.append("--symmetrize")
     out = run(*cmd)
+    paired = {}
+    num = r"([+-]?[\d.]+)"
+    for key, head in (("h1", "target = mid 1 event(s) ahead"),
+                      ("next_change", "target = mid at the next mid change")):
+        block = out[out.index(head):]
+        m = re.search(r"n=(\d+)\s+mean events ahead=([\d.]+)", block)
+        mse = re.search(r"MSE\s+microprice=([\d.]+)\s+mid=([\d.]+)", block)
+        d = re.search(r"microprice - mid:\s+MAE " + num + r" \[" + num + ", " + num + r"\]\s+MSE "
+                      + num + r" \[" + num + ", " + num + r"\]", block)
+        paired[key] = dict(n=int(m.group(1)), mean_events_ahead=float(m.group(2)),
+                           mse_microprice=float(mse.group(1)), mse_mid=float(mse.group(2)),
+                           mae_diff=[float(d.group(k)) for k in (1, 2, 3)],
+                           mse_diff=[float(d.group(k)) for k in (4, 5, 6)])
+    table = out[out.index("Reliability by state"):]
+    rel = [dict(state=int(a), train_visits=int(b), n_test=int(c), predicted=float(e),
+                realized=float(f), se=float(g))
+           for a, b, c, e, f, g in re.findall(
+               r"^\s+(\d+)\s+(\d+)\s+(\d+)\s+([+-][\d.]+)\s+([+-][\d.]+)\s+([\d.]+|NaN)$",
+               table, re.M)]
     mae = re.search(r"MAE \(ticks\)\s+microprice=([\d.]+)\s+mid=([\d.]+)\s+weighted_mid=([\d.]+)", out)
     diag = re.search(r"fixed-point residual ([\d.e+-]+) ticks; .*?max \|E\[P'-P\|state\]\| = ([\d.e+-]+) ticks.*?"
                      r"visit-weighted mean ([\d.e+-]+) ticks", out)
@@ -105,7 +126,8 @@ def evaluate(bin_: str, symmetrize: bool) -> dict:
     return dict(microprice=float(mae.group(1)), mid=float(mae.group(2)),
                 weighted_mid=float(mae.group(3)), residual=float(diag.group(1)),
                 drift_max=float(diag.group(2)), drift_mean=float(diag.group(3)),
-                n_evaluated=int(ne.group(1)), n_held_out=int(held.group(1)))
+                n_evaluated=int(ne.group(1)), n_held_out=int(held.group(1)),
+                paired=paired, reliability=rel)
 
 
 def style(theme: str):
@@ -229,6 +251,68 @@ def fig_drift(theme, raw, sym):
     save(fig, "fig-martingale-drift", theme)
 
 
+def fig_paired(theme, raw, sym):
+    t = style(theme)
+    fig, axes = plt.subplots(1, 2, figsize=(11.5, 4.2))
+    panels = [("h1", "target: mid 1 event ahead"),
+              ("next_change", "target: mid at the next mid change")]
+    rows = [("default", raw, t["c1"], "o"), ("--symmetrize", sym, t["c2"], "s")]
+    for ax, (key, title) in zip(axes, panels):
+        for yi, (label, res, col, mk) in enumerate(rows[::-1]):
+            est, lo, hi = res["paired"][key]["mse_diff"]
+            ax.errorbar([est], [yi], xerr=[[est - lo], [hi - est]], fmt=mk, color=col,
+                        ms=8, capsize=4, lw=2)
+            ax.text(hi, yi + 0.22, f"{est:+.5f} [{lo:+.5f}, {hi:+.5f}]", ha="right",
+                    fontsize=8.5, color=t["fg"])
+        ax.axvline(0, color=t["muted"], lw=1, ls="--")
+        ax.set_yticks([0, 1], [r[0] for r in rows[::-1]])
+        ax.set_ylim(-0.6, 1.7)
+        ax.set_title(title, fontsize=11, color=t["fg"], loc="left")
+        ax.set_xlabel("MSE(micro-price) - MSE(naive mid), ticks^2")
+        ax.xaxis.grid(True, color=t["grid"], lw=0.6); ax.set_axisbelow(True)
+        ax.tick_params(length=0); ax.spines["left"].set_visible(False)
+        lo_all = min(r[1]["paired"][key]["mse_diff"][1] for r in rows)
+        hi_all = max(r[1]["paired"][key]["mse_diff"][2] for r in rows)
+        pad = 0.25 * max(hi_all - lo_all, 1e-6)
+        ax.set_xlim(min(lo_all, 0) - pad, max(hi_all, 0) + pad)
+    fig.suptitle("Paired held-out MSE difference vs naive mid, 95% block-bootstrap intervals: SYNTHETIC data",
+                 x=0.012, ha="left", fontsize=12, color=t["fg"], fontweight="bold")
+    stamp(fig, t, "Left of the dashed line favours the micro-price. Output of `microprice evaluate` "
+                  "(seed 42, 300,000 events, 70/30 chronological split, 1000 resamples).\n"
+                  "The next-mid-change target is an additional analysis, not the pre-registered one.")
+    fig.subplots_adjust(left=0.1, right=0.98, top=0.83, bottom=0.26, wspace=0.3)
+    save(fig, "fig-paired-mse", theme)
+
+
+def fig_reliability(theme, raw, sym):
+    t = style(theme)
+    fig, ax = plt.subplots(figsize=(9.5, 5.2))
+    allv = []
+    for label, res, col, mk in (("default", raw, t["c1"], "o"), ("--symmetrize", sym, t["c2"], "s")):
+        rel = [r for r in res["reliability"] if r["n_test"] >= 500]
+        x = [r["predicted"] for r in rel]; y = [r["realized"] for r in rel]
+        e = [1.96 * r["se"] for r in rel]
+        allv += x + [a + b for a, b in zip(y, e)] + [a - b for a, b in zip(y, e)]
+        ax.errorbar(x, y, yerr=e, fmt=mk, color=col, ms=8, capsize=3, lw=1.5, label=label,
+                    mec=t["bg"], mew=1.5)
+    lim = 1.15 * max(abs(v) for v in allv)
+    ax.plot([-lim, lim], [-lim, lim], color=t["muted"], lw=1, ls="--", label="perfect calibration (y = x)")
+    ax.axhline(0, color=t["grid"], lw=0.8); ax.axvline(0, color=t["grid"], lw=0.8)
+    ax.set_xlim(-lim, lim); ax.set_ylim(-lim, lim); ax.set_aspect("equal")
+    ax.set_xlabel("predicted G* for the state (ticks)")
+    ax.set_ylabel("mean realized move to next mid change (ticks)")
+    leg = ax.legend(frameon=False, loc="upper left", fontsize=9)
+    for tx in leg.get_texts():
+        tx.set_color(t["fg"])
+    fig.suptitle("Per-state reliability on held-out SYNTHETIC data",
+                 x=0.012, ha="left", fontsize=12, color=t["fg"], fontweight="bold")
+    stamp(fig, t, "One point per state with >= 500 held-out observations; bars = +/-1.96 naive s.e., which "
+                  "assumes independence\nand understates the uncertainty (targets overlap, and with "
+                  "imbalance_persistence = 0.1 successive move directions are correlated). Source: `microprice evaluate --calibration-table`.")
+    fig.subplots_adjust(left=0.1, right=0.97, top=0.9, bottom=0.2)
+    save(fig, "fig-reliability", theme)
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     bin_ = binary()
@@ -244,6 +328,8 @@ def main():
         fig_heatmap(theme, gs, vs)
         fig_mae(theme, raw, sym)
         fig_drift(theme, raw, sym)
+        fig_paired(theme, raw, sym)
+        fig_reliability(theme, raw, sym)
     data = dict(note="SYNTHETIC data from the project's deterministic generator; not real market data",
                 seed=SEED, evaluate_default=raw, evaluate_symmetrize=sym,
                 g_star_default=gs[0].tolist(), visits_default=vs[0].tolist(),

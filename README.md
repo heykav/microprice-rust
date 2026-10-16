@@ -20,7 +20,7 @@ study or extend, not a trading signal.
 
 **Status: research code, no real-data result yet.** On the project's own
 synthetic data the calibrated micro-price does **not** beat the naive
-mid-price (MAE 0.1094 vs 0.0988 ticks, horizon 1, 90,000 held-out events;
+mid-price (MAE 0.1093 vs 0.0988 ticks, horizon 1, 90,000 held-out events;
 [details](#what-was-measured-on-synthetic-data); the optional symmetrized
 variant does not either, 0.1031). The synthetic generator has
 no imbalance-to-direction signal, so that says little about real markets,
@@ -64,7 +64,7 @@ is an interactive console over an embedded, pre-trained model (static; see
 
 <p align="center">
 <a href="https://heykav.github.io/microprice-rust/"><img src="docs/img/site-demo.png" alt="Screenshot of the Micro-Price Terminal demo page: top-of-book inputs on the left, a model read-out with mid, weighted mid, the G* adjustment and the micro-price, and a plot of G* across the imbalance axis. The model behind it was trained on the project's synthetic generator." width="880"></a><br>
-<sub>The demo page (headless Chromium, 1280x800). The embedded model was trained on the project's <b>synthetic</b> generator, not on market data.</sub>
+<sub>The demo page (headless Chromium, 1280x800). The embedded model was trained on the project's <b>synthetic</b> generator, not on market data. The screenshot predates the smoothing fix, so the numbers shown in it can differ slightly from the current page.</sub>
 </p>
 
 ## Real-data result
@@ -101,7 +101,7 @@ data is not committed.
 
 `microprice evaluate --num-events 300000 --num-imbalance-buckets 10
 --spread-bucket-bounds "1,2,4"` (seed 42, horizon 1 event, 90,000 held-out
-events) gave **micro-price MAE 0.1094 ticks versus naive-mid MAE 0.0988
+events) gave **micro-price MAE 0.1093 ticks versus naive-mid MAE 0.0988
 ticks**: the micro-price did not beat the naive mid. Direction accuracy was
 0.5147, barely above a coin flip. The generator's `imbalance_persistence`
 drives price-move direction as its own Markov chain, independent of queue
@@ -113,13 +113,38 @@ The Brier score against a climatological baseline shows no skill either
 imbalance-to-direction signal). The generator is deterministic (same seed, identical
 output) and exists for tests and examples, not realism.
 
+MAE is a partly unfair score for this model: it rewards the conditional
+*median*, and one event ahead the median move is zero (only 8,896 of the
+89,999 held-out pairs moved), so the unchanged mid is close to MAE-optimal
+by construction, while `G*` estimates a conditional *mean*. The same
+`evaluate` run therefore also prints a paired comparison with MSE and 95%
+block-bootstrap intervals (1,000 resamples, blocks of 1,000 observations),
+at the fixed horizon and at the **next mid change** (the target `G*`
+estimates by construction; an additional analysis, not the pre-registered
+one). Measured, in ticks (squared for MSE), micro-price minus naive mid:
+
+| target | calibration | MSE difference [95% interval] | MAE difference [95% interval] |
+|---|---|---|---|
+| mid 1 event ahead | default | +0.00013 [+0.00004, +0.00021] | +0.01049 [+0.01032, +0.01066] |
+| mid 1 event ahead | `--symmetrize` | +0.00004 [+0.00002, +0.00006] | +0.00424 [+0.00419, +0.00430] |
+| next mid change (10.25 events ahead on average) | default | -0.00050 [-0.00167, +0.00060] | -0.00034 [-0.00093, +0.00020] |
+| next mid change | `--symmetrize` | +0.00023 [+0.00000, +0.00046] | +0.00010 [-0.00001, +0.00022] |
+
+So on MSE the micro-price is still slightly worse than the mid one event
+ahead, and at the next mid change every interval touches or contains zero:
+no detectable skill either way, as expected from a generator with no
+imbalance signal. The bootstrap intervals are approximate (serially
+dependent, overlapping targets). `--calibration-table` adds a per-state
+reliability table (predicted `G*` next to the mean realized move to the
+next mid change), plotted below.
+
 Figures below are regenerated from the CLI output by [`scripts/make_figures.py`](scripts/make_figures.py) (all synthetic data, seed 42):
 
 <p align="center">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/fig-mae-comparison-dark.png">
   <source media="(prefers-color-scheme: light)" srcset="docs/img/fig-mae-comparison-light.png">
-  <img src="docs/img/fig-mae-comparison-light.png" alt="Horizontal bar chart of held-out mean absolute error in ticks on synthetic data at horizon 1: naive mid 0.0988, micro-price 0.1094, micro-price with symmetrization 0.1031, size-weighted mid 0.2974. The micro-price does not beat the naive mid." width="760">
+  <img src="docs/img/fig-mae-comparison-light.png" alt="Horizontal bar chart of held-out mean absolute error in ticks on synthetic data at horizon 1: naive mid 0.0988, micro-price 0.1093, micro-price with symmetrization 0.1031, size-weighted mid 0.2974. The micro-price does not beat the naive mid." width="760">
 </picture>
 </p>
 
@@ -131,6 +156,22 @@ Figures below are regenerated from the CLI output by [`scripts/make_figures.py`]
 </picture>
 </p>
 
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/fig-paired-mse-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/img/fig-paired-mse-light.png">
+  <img src="docs/img/fig-paired-mse-light.png" alt="Two forest plots of the paired held-out MSE difference, micro-price minus naive mid, with 95% block-bootstrap intervals, on synthetic data. One event ahead: default +0.00013 [+0.00004, +0.00021], symmetrized +0.00004 [+0.00002, +0.00006], both slightly worse than the mid. At the next mid change: default -0.00050 [-0.00167, +0.00060], symmetrized +0.00023 [+0.00000, +0.00046], intervals touching or containing zero." width="900">
+</picture>
+</p>
+
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/fig-reliability-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/img/fig-reliability-light.png">
+  <img src="docs/img/fig-reliability-light.png" alt="Scatter of predicted G* against the mean realized move to the next mid change, one point per state with at least 500 held-out observations, for default and symmetrized calibration on synthetic data. Predicted values cluster within a few hundredths of a tick of zero while realized means spread from about -0.17 to +0.07 ticks with wide error bars; the points do not follow the y = x line." width="760">
+</picture>
+</p>
+
 ## How it works
 
 1. **State.** Best-bid/ask sizes give imbalance `I = Qb / (Qb + Qa)`, split
@@ -139,11 +180,15 @@ Figures below are regenerated from the CLI output by [`scripts/make_figures.py`]
 2. **Counting.** Consecutive quote events form transitions `state_i ->
    state_j`. A transition is price-changing if the mid-price differs
    (signed tick delta retained); only non-price-changing ones enter `Q`.
-3. **Estimation.** Laplace-smoothed `Q`, one-step expected mid change `G1`,
+3. **Estimation.** Laplace-smoothed `Q`, one-step expected mid change `G1`
+   (same denominator as `Q`, so each row is one probability distribution),
    and per-state `P(up)` (used only for the Brier score, never in `G*`).
 4. **Solve.** `G* = G1 + Q G*` by fixed-point iteration (no matrix inverse);
-   non-convergence is a returned error.
-5. **Predict.** `micro-price = mid + G*[state]`, allocation-free.
+   non-convergence is a returned error. `mid + G*[s]` is the model's expected
+   mid at the first price change out of state `s`, so `|G*|` never exceeds
+   the largest observed move.
+5. **Predict.** `micro-price = mid + G*[state]`, allocation-free (the state
+   space is cached in the loaded model).
 
 Exact definitions and degenerate cases: [`docs/model-spec.md`](docs/model-spec.md).
 
@@ -237,6 +282,18 @@ not compile arrow/parquet.
   price-changing transitions must not count toward `Q[i][i]`, and merging
   non-overlapping chunk counters drops exactly the boundary transitions
   (documented on `merge`, with the overlap fix tested).
+- Property tests (`crates/microprice-calibration/tests/properties.rs`, random
+  transition counts): every smoothed row sums to 1, `|G*|` is bounded by the
+  largest observed move, exactly mirror-symmetric data gives antisymmetric
+  `G*` and `p_up -> 1 - p_up`, and estimation is bit-for-bit deterministic.
+- Defects fixed with regression tests: with smoothing, `G1` used a smaller
+  denominator than `Q`, so `G*` could exceed the largest observed move (an
+  3-state chain whose every move was `+1` tick, 10 visits per state, `alpha = 1`, gave `G*` of about 1.157 ticks); a model file declaring
+  an imbalance x spread bucket count that overflows `u32` loaded and then
+  panicked on `predict` (now a typed error from `StateSpaceConfig::new`);
+  `MicroPriceModel::new` did not validate its inputs (now it runs the same
+  checks as `load`); and `predict` cloned the spread bounds on every call
+  despite being documented as allocation-free.
 - `#![forbid(unsafe_code)]` in every crate; typed errors, no `unwrap()` in
   library code.
 - Performance numbers, measured with Criterion on stated hardware, are in
@@ -254,6 +311,7 @@ cargo fmt --all --check
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
 cargo bench -p microprice-core             # optional; see docs/benchmarking.md
 python3 scripts/make_figures.py               # optional; regenerates docs/img figures (needs matplotlib, numpy)
+python3 scripts/export_site_model.py          # optional; regenerates the demo's embedded model
 ```
 
 CI runs these on Linux and macOS plus a `maturin` build and smoke test of the

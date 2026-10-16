@@ -11,7 +11,11 @@ use clap::Args;
 
 use microprice_core::{ImbalanceBucketing, SpreadBucketing, StateSpaceConfig};
 use microprice_data::{MarketDataSource, SyntheticEventGenerator};
-use microprice_eval::{chronological_split, evaluate_model};
+use microprice_eval::{
+    calibration_by_state, chronological_split, compare_predictors,
+    compare_predictors_next_mid_change, evaluate_model, resolve_next_mid_change_targets,
+    CompareOptions, ComparisonReport, Interval,
+};
 
 use crate::train::{calibrate_model, parse_spread_bounds, print_diagnostics, CommonTrainArgs};
 
@@ -34,13 +38,52 @@ pub struct EvaluateArgs {
     /// this horizon choice is disclosed, not the only valid one).
     #[arg(long, default_value_t = 1)]
     horizon: usize,
+
+    /// Block-bootstrap resamples for the 95% intervals of the paired
+    /// comparison printed at the end (0 disables the intervals).
+    #[arg(long, default_value_t = 1000)]
+    bootstrap_resamples: usize,
+
+    /// Also print a per-state reliability table on the held-out split:
+    /// predicted G* next to the mean realized move to the next mid change.
+    #[arg(long)]
+    calibration_table: bool,
+}
+
+fn fmt_interval(i: Interval) -> String {
+    if i.lo.is_finite() && i.hi.is_finite() {
+        format!("{:+.5} [{:+.5}, {:+.5}]", i.estimate, i.lo, i.hi)
+    } else {
+        format!("{:+.5} (no interval)", i.estimate)
+    }
+}
+
+fn print_paired(label: &str, r: &ComparisonReport) {
+    println!("  {label}");
+    println!(
+        "    n={}  mean events ahead={:.2}  unresolved={}  block_len={}",
+        r.n_evaluated, r.mean_events_ahead, r.n_unresolved, r.block_len
+    );
+    println!(
+        "    MAE  microprice={:.5}  mid={:.5}  weighted_mid={:.5}",
+        r.microprice.mae, r.mid.mae, r.weighted_mid.mae
+    );
+    println!(
+        "    MSE  microprice={:.5}  mid={:.5}  weighted_mid={:.5}",
+        r.microprice.mse, r.mid.mse, r.weighted_mid.mse
+    );
+    println!(
+        "    microprice - mid:  MAE {}   MSE {}",
+        fmt_interval(r.mae_diff_vs_mid),
+        fmt_interval(r.mse_diff_vs_mid)
+    );
 }
 
 pub fn run(args: EvaluateArgs) -> Result<(), Box<dyn std::error::Error>> {
     let spread_bounds = parse_spread_bounds(&args.common.spread_bucket_bounds)?;
     let imbalance = ImbalanceBucketing::new(args.common.num_imbalance_buckets)?;
     let spread = SpreadBucketing::new(spread_bounds.clone())?;
-    let state_space = StateSpaceConfig::new(imbalance, spread);
+    let state_space = StateSpaceConfig::new(imbalance, spread)?;
 
     let mut generator = SyntheticEventGenerator::new(args.common.synthetic_config())?;
 
@@ -144,6 +187,62 @@ pub fn run(args: EvaluateArgs) -> Result<(), Box<dyn std::error::Error>> {
              (worse by {:.4} ticks) - reporting this honestly, not hiding it.",
             report.microprice_mae - report.mid_mae
         );
+    }
+
+    // Paired comparison on the same held-out split: MSE alongside MAE, with
+    // block-bootstrap intervals, at the fixed event horizon and at the next
+    // mid change. MAE rewards the conditional *median*, which is the
+    // unchanged mid whenever most short-horizon targets did not move; `G*`
+    // estimates a conditional *mean*, which MSE scores. Neither choice is a
+    // pre-registered decision rule; both are printed, whatever they show.
+    let options = CompareOptions {
+        horizon: args.horizon,
+        bootstrap_resamples: args.bootstrap_resamples,
+        block_len: 1000.max(10 * args.horizon),
+        seed: args.common.seed,
+    };
+    let fixed = compare_predictors(&model, test_events, options)?;
+    let next_change = compare_predictors_next_mid_change(
+        &model,
+        test_events,
+        CompareOptions {
+            block_len: 0,
+            ..options
+        },
+    )?;
+    println!();
+    println!(
+        "Paired comparison, ticks, 95% block-bootstrap intervals ({} resamples; negative differences favour the microprice):",
+        args.bootstrap_resamples
+    );
+    print_paired(
+        &format!("target = mid {} event(s) ahead", args.horizon),
+        &fixed,
+    );
+    print_paired(
+        "target = mid at the next mid change (additional; the quantity G* estimates by construction)",
+        &next_change,
+    );
+
+    if args.calibration_table {
+        let (pairs, _) = resolve_next_mid_change_targets(test_events);
+        println!();
+        println!(
+            "Reliability by state (held-out; realized = mid at next mid change - mid, ticks; \
+             se assumes independence and understates uncertainty):"
+        );
+        println!("  state  train_visits  n_test  predicted_gstar  realized_mean  realized_se");
+        for row in calibration_by_state(&model, test_events, &pairs) {
+            println!(
+                "  {:>5}  {:>12}  {:>6}  {:>+15.5}  {:>+13.5}  {:>11.5}",
+                row.state_id,
+                row.training_visits,
+                row.n,
+                row.predicted,
+                row.realized_mean,
+                row.realized_naive_se
+            );
+        }
     }
 
     Ok(())

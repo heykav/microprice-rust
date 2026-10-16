@@ -176,8 +176,30 @@ pub struct StateSpaceConfig {
 }
 
 impl StateSpaceConfig {
-    pub fn new(imbalance: ImbalanceBucketing, spread: SpreadBucketing) -> Self {
-        StateSpaceConfig { imbalance, spread }
+    /// Combines the two bucketings. Fails with
+    /// [`MicroPriceError::InvalidBucketConfig`] if the total state count
+    /// `num_imbalance_buckets * num_spread_buckets` does not fit in a `u32`:
+    /// every [`StateId`] must be representable, and an overflowing product
+    /// would otherwise wrap (release) or panic (debug) and let `encode`
+    /// return ids outside `0..state_count()`.
+    pub fn new(
+        imbalance: ImbalanceBucketing,
+        spread: SpreadBucketing,
+    ) -> Result<Self, MicroPriceError> {
+        if imbalance
+            .num_buckets()
+            .checked_mul(spread.num_buckets())
+            .is_none()
+        {
+            return Err(MicroPriceError::InvalidBucketConfig {
+                reason: format!(
+                    "state count {} imbalance buckets x {} spread buckets overflows u32",
+                    imbalance.num_buckets(),
+                    spread.num_buckets()
+                ),
+            });
+        }
+        Ok(StateSpaceConfig { imbalance, spread })
     }
 
     /// Total number of distinct states: `num_imbalance_buckets *
@@ -233,6 +255,24 @@ mod tests {
     fn state_id_equality_and_ordering_are_by_value() {
         assert_eq!(StateId(3), StateId(3));
         assert!(StateId(1) < StateId(2));
+    }
+
+    #[test]
+    fn state_space_rejects_a_state_count_that_overflows_u32() {
+        let result = StateSpaceConfig::new(
+            ImbalanceBucketing::new(1 << 31).unwrap(),
+            SpreadBucketing::new(vec![1]).unwrap(),
+        );
+        assert!(matches!(
+            result,
+            Err(MicroPriceError::InvalidBucketConfig { .. })
+        ));
+        // The largest representable product is accepted.
+        assert!(StateSpaceConfig::new(
+            ImbalanceBucketing::new(u32::MAX).unwrap(),
+            SpreadBucketing::new(vec![]).unwrap(),
+        )
+        .is_ok());
     }
 
     // --- ImbalanceBucketing ---
@@ -378,6 +418,7 @@ mod tests {
             ImbalanceBucketing::new(20).unwrap(),
             SpreadBucketing::new(vec![1, 2, 4]).unwrap(),
         )
+        .unwrap()
     }
 
     #[test]
@@ -467,6 +508,7 @@ mod proptests {
                         ImbalanceBucketing::new(num_imbalance).unwrap(),
                         SpreadBucketing::new(bounds).unwrap(),
                     )
+                    .unwrap()
                 },
             )
         })
