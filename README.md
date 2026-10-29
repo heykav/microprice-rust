@@ -4,7 +4,7 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/hero-dark.svg">
   <source media="(prefers-color-scheme: light)" srcset="docs/img/hero-light.svg">
-  <img src="docs/img/hero-light.svg" alt="MicroPrice-Rust banner: queue-imbalance micro-price estimation for limit order books, in Rust. Labels: research code, synthetic data only, no real-data result yet. The schematic of bid and ask sizes around the mid-price is illustrative, not data.">
+  <img src="docs/img/hero-light.svg" alt="MicroPrice-Rust banner: queue-imbalance micro-price estimation for limit order books, in Rust. An animated schematic shows the micro-price moving off the mid as bid and ask queues change; it is illustrative, not data. Status: research code, synthetic data only, no real-data result yet, and the micro-price does not beat the naive mid on synthetic data.">
 </picture>
 </p>
 
