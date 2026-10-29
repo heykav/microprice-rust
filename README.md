@@ -133,6 +133,14 @@ Figures below are regenerated from the CLI output by [`scripts/make_figures.py`]
 
 ## How it works
 
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/imbalance-dark.svg">
+  <img src="docs/img/imbalance-light.svg" alt="Animated illustrative schematic, not data. An order book where more size on the bid moves the micro-price above the mid, balanced queues leave it on the mid, and more size on the ask moves it below. Beside it, four steps: discretize quotes into imbalance and spread states, estimate a Markov chain, solve for G star, output mid plus G star." width="900">
+</picture><br>
+<sub>Illustrative schematic of the idea, not data and not model output. The marker is drawn at the size-weighted mid for intuition; the library's adjustment comes from calibration.</sub>
+</p>
+
 1. **State.** Best-bid/ask sizes give imbalance `I = Qb / (Qb + Qa)`, split
    into uniform buckets; the spread in ticks is bucketed by explicit bounds.
    Both pack into one `StateId`. Prices are integer ticks, never floats.
@@ -253,6 +261,7 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo fmt --all --check
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
 cargo bench -p microprice-core             # optional; see docs/benchmarking.md
+python3 scripts/make_hero.py                  # optional; regenerates the animated hero and explainer SVGs (no dependencies)
 python3 scripts/make_figures.py               # optional; regenerates docs/img figures (needs matplotlib, numpy)
 ```
 
