@@ -133,8 +133,8 @@ def status_box(c, x, y, w):
     s = [f'<rect x="{x}" y="{y}" width="{w}" height="76" rx="8" fill="{c["warn_bg"]}" stroke="{c["line"]}"/>',
          f'<rect x="{x}" y="{y}" width="5" height="76" rx="2" fill="{c["acc2"]}"/>',
          t(x + 22, y + 26, "STATUS", 12, c["acc2"], weight="bold"),
-         t(x + 22, y + 48, "No real-data result yet. On the project's synthetic data", 14, c["text"], SANS),
-         t(x + 22, y + 66, "the micro-price does not beat the naive mid (MAE 0.1094 vs 0.0988 ticks).", 14, c["text"], SANS)]
+         t(x + 22, y + 48, "One real day (Binance BTCUSDT, 2024-01-15) and synthetic data:", 14, c["text"], SANS),
+         t(x + 22, y + 66, "the micro-price does not beat the naive mid on either.", 14, c["text"], SANS)]
     return "".join(s)
 
 
@@ -143,11 +143,11 @@ def hero(c):
     s = [head(c, w, h, "MicroPrice-Rust",
               "Banner for MicroPrice-Rust, queue-imbalance micro-price estimation for limit order books in Rust. "
               "An animated order-book schematic shows the micro-price moving off the mid as queue imbalance changes. "
-              "The schematic is illustrative, not data. Status: research code, synthetic data only, "
-              "no real-data result yet, and on synthetic data the micro-price does not beat the naive mid.")]
+              "The schematic is illustrative, not data. Status: research code. One real-data result (Binance BTCUSDT, one day) and synthetic data: "
+              "the micro-price does not beat the naive mid on either.")]
     s.append('<g class="an">')
     s.append(f'<rect x="0.75" y="0.75" width="{w - 1.5}" height="{h - 1.5}" rx="14" fill="none" stroke="{c["line"]}" stroke-width="1.5"/>')
-    s.append(t(64, 74, "RESEARCH CODE  /  SYNTHETIC DATA ONLY", 13, c["acc"], weight="bold"))
+    s.append(t(64, 74, "RESEARCH CODE  /  NEGATIVE RESULT ON REAL DATA", 13, c["acc"], weight="bold"))
     s.append(t(64, 144, "MicroPrice", 64, c["text"], SERIF, "bold") .replace("</text>", "") +
              f'<tspan fill="{c["acc"]}">-Rust</tspan></text>')
     s.append(t(66, 190, "Queue-imbalance micro-price estimation", 22, c["sub"], SANS))
@@ -189,7 +189,7 @@ def explainer(c):
         s.append(t(790, y + 34, a, 18, c["text"], SANS, "bold"))
         s.append(t(790, y + 56, b1, 14, c["sub"], SANS))
         s.append(t(790, y + 74, b2, 14, c["sub"], SANS))
-    s.append(t(720, 540, "On the project's synthetic data this does not beat the naive mid. No real-data result yet.", 13, c["acc2"], SANS))
+    s.append(t(720, 540, "Does not beat the naive mid on synthetic data or one real day of BTCUSDT.", 13, c["acc2"], SANS))
     s.append("</g></svg>")
     return "".join(s)
 
@@ -198,7 +198,7 @@ def social():
     c = THEMES["dark"]
     w, h = 1280, 640
     s = [head(c, w, h, "MicroPrice-Rust", "Social preview card for MicroPrice-Rust. Illustrative schematic, not data.")]
-    s.append(t(80, 150, "RESEARCH CODE  /  SYNTHETIC DATA ONLY", 16, c["acc"], weight="bold"))
+    s.append(t(80, 150, "RESEARCH CODE  /  NEGATIVE RESULT ON REAL DATA", 16, c["acc"], weight="bold"))
     s.append(t(80, 240, "MicroPrice", 72, c["text"], SERIF, "bold").replace("</text>", "") +
              f'<tspan fill="{c["acc"]}">-Rust</tspan></text>')
     s.append(t(82, 310, "Queue-imbalance micro-price", 30, c["sub"], SANS))

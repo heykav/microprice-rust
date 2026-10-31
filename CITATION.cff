@@ -3,7 +3,7 @@ message: "If you use this software, please cite it using the metadata below."
 title: "MicroPrice-Rust"
 abstract: >-
   Queue-imbalance micro-price estimation for limit order books, in Rust.
-  Research code; evaluated on synthetic data only so far.
+  Research code; the micro-price does not beat the naive mid on synthetic data or on one day of Binance BTCUSDT quotes.
 type: software
 authors:
   - family-names: "Anubhav"

@@ -4,7 +4,7 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/hero-dark.svg">
   <source media="(prefers-color-scheme: light)" srcset="docs/img/hero-light.svg">
-  <img src="docs/img/hero-light.svg" alt="MicroPrice-Rust banner: queue-imbalance micro-price estimation for limit order books, in Rust. An animated schematic shows the micro-price moving off the mid as bid and ask queues change; it is illustrative, not data. Status: research code, synthetic data only, no real-data result yet, and the micro-price does not beat the naive mid on synthetic data.">
+  <img src="docs/img/hero-light.svg" alt="MicroPrice-Rust banner: queue-imbalance micro-price estimation for limit order books, in Rust. An animated schematic shows the micro-price moving off the mid as bid and ask queues change; it is illustrative, not data. Status: research code. One real-data result (Binance BTCUSDT, one day) and synthetic data: the micro-price does not beat the naive mid on either.">
 </picture>
 </p>
 
@@ -18,17 +18,17 @@ the construction in Stoikov (2018) with the departures listed
 It is aimed at people who want an auditable, reproducible implementation to
 study or extend, not a trading signal.
 
-**Status: research code, no real-data result yet.** On the project's own
-synthetic data the calibrated micro-price does **not** beat the naive
-mid-price (MAE 0.1094 vs 0.0988 ticks, horizon 1, 90,000 held-out events;
-[details](#what-was-measured-on-synthetic-data); the optional symmetrized
-variant does not either, 0.1031). The synthetic generator has
-no imbalance-to-direction signal, so that says little about real markets,
-and no real-data number exists yet ([why](#real-data-result)). The CSV
-ingestion for real Level-1 data and a pre-registered evaluation protocol
-([`docs/real-data-evaluation.md`](docs/real-data-evaluation.md)) are in
-place, waiting on a run with network access to a dataset host. The Binance
-and LOBSTER column mappings are unverified against vendor documentation.
+**Status: research code. One real-data result, and it is negative.** On one
+day of Binance BTCUSDT perpetual best bid/ask data (2024-01-15, first 5
+million quotes, pre-registered protocol) the calibrated micro-price is
+**worse** than the naive mid-price at the pre-registered horizon of 10 events
+(MSE +9.67 ticks^2, 95% interval [+9.40, +9.93]; [details](#real-data-result)).
+On the project's own synthetic data it does not beat the naive mid either
+(MAE 0.1094 vs 0.0988 ticks, horizon 1, 90,000 held-out events;
+[details](#what-was-measured-on-synthetic-data)). One instrument-day is one
+sample of one regime, so this does not establish how the model behaves
+elsewhere. The Binance column mapping is now checked; the LOBSTER mapping is
+still unverified.
 
 ## Quickstart
 
@@ -69,33 +69,102 @@ is an interactive console over an embedded, pre-trained model (static; see
 
 ## Real-data result
 
-**Result pending. There is no real-data number in this repository.**
-Everything measured so far used the synthetic generator (see the negative
-result in the CLI section below) or tiny hand-written format fixtures.
+**Result: on this data the micro-price does not beat the naive mid, and at the
+pre-registered primary comparison it is worse.** This is the whole result of
+the pre-registered run; nothing was tuned after seeing it.
 
-What exists: an ingestion path for real Level-1 quote CSVs (a generic named
-column schema plus Binance USD-M futures `bookTicker` and LOBSTER presets), a
-`microprice evaluate-csv` command, and an evaluation protocol written before
-any result -
-[`docs/real-data-evaluation.md`](docs/real-data-evaluation.md) - with a
-chronological split, naive-mid and size-weighted-mid baselines, MAE/MSE and
-directional accuracy at fixed event horizons, bootstrap intervals, a
-pre-registered decision rule, and a commitment to publish negative results.
-The Binance and LOBSTER column mappings are **UNVERIFIED** against the
-vendors' documentation.
+| | |
+|---|---|
+| Source | Binance USD-M futures `bookTicker` daily file, public archive `data.binance.vision` |
+| File | `BTCUSDT-bookTicker-2024-01-15.zip`, 188,017,444 bytes (1,871,514,159 bytes unzipped, 19,881,490 data rows) |
+| SHA-256 (zip) | `50de14aafe593160e613bcdb46e0f172cbc9ef222ae64ec84b6e3e5ef711d37f`, equal to the archive's published `.CHECKSUM` |
+| Used | first 5,000,000 accepted quotes (00:00:00 to about 06:26 UTC, 23,165 s), the script's pre-registered default; 34 rows off the 0.1 tick grid were skipped |
+| Split | first 70% (3,500,000 quotes) calibrate, last 30% (1,500,000) test; no shuffling |
+| Config | 10 imbalance buckets, spread bounds 1/2/4 ticks, alpha 0.5, resolution 2, tick 0.1, bootstrap 1000 x block 1000, seed 42 |
+| Code | commit `6787864` (this PR changes no model or evaluation logic) |
+| Run | 2026-10-30. The file was downloaded with `curl` and its checksum compared by hand; the evaluation command is the one the fetch script prints (below). It is deterministic: a second run reproduced the same numbers. |
 
-Why it is pending: the environment this was built in could not reach the
-dataset hosts (`data.binance.vision`, `lobsterdata.com`). Producing the result
-needs network access to one of them. The exact command, on a machine with
-normal internet access:
+Test split only, error of predicting the mid `h` events ahead (ticks; MSE in
+ticks^2). Differences are micro-price minus baseline, so **positive means the
+micro-price is worse**; intervals are 95% block-bootstrap.
+
+| horizon | predictor | MAE | MSE | MSE diff vs naive mid |
+|---|---|---|---|---|
+| 1 | naive mid | 0.0776 | 1.5917 | |
+| 1 | weighted mid | 0.4380 | 2.6774 | |
+| 1 | micro-price | 3.4998 | 15.1339 | +13.54 [+13.32, +13.75] |
+| **10 (primary)** | naive mid | 0.6978 | 17.3655 | |
+| **10 (primary)** | weighted mid | 0.9663 | 17.7099 | |
+| **10 (primary)** | micro-price | 3.7527 | 27.0323 | **+9.67 [+9.40, +9.93]** |
+| 100 | naive mid | 6.4266 | 258.2925 | |
+| 100 | weighted mid | 6.4672 | 256.2379 | |
+| 100 | micro-price | 7.5814 | 238.5443 | -19.75 [-21.27, -18.10] |
+
+Pre-registered decision, applied mechanically: primary comparison (MSE vs the
+naive mid at horizon 10) is **worse**; secondary (vs the weighted mid) is
+**worse** (+9.32 [+8.32, +10.00]). The horizon-100 MSE row favours the
+micro-price, but its MAE is worse (+1.15), horizon 100 is descriptive only in
+the protocol, and it does not change the decision. Direction accuracy of all
+model predictors on price-changing events is about 0.88 to 0.92 against a
+majority-direction reference of about 0.51 to 0.54; the micro-price and the
+weighted mid are within 0.001 of each other, so the direction signal is the
+imbalance sign, not anything the calibration adds.
+
+One observation made after seeing the result, not part of the protocol: the
+calibrated adjustment `G*` reaches 4.98 ticks in the most one-sided
+imbalance states (the report's diagnostics line), because mid changes on this
+feed are heavy-tailed (only 1.8% of quotes change the mid, and when they do
+the size varies widely). A correction that large is the wrong size for a
+one-event or ten-event horizon, which fits the sign flip at horizon 100.
+This is an interpretation, not a tested claim.
+
+Full report: [`results/binance-bookticker-BTCUSDT-2024-01-15.md`](results/binance-bookticker-BTCUSDT-2024-01-15.md).
+
+### Every other run done (all exploratory, same file and code)
+
+Per commitment 2 of the protocol, these are labelled exploratory and none of
+them replaces the result above.
+
+| run | report | primary-horizon MSE diff vs naive mid | decision rule output |
+|---|---|---|---|
+| `--symmetrize` (imbalance-mirror pooling) | [report](results/binance-bookticker-BTCUSDT-2024-01-15-exploratory-symmetrize.md) | +9.82 [+9.54, +10.07] | worse (h1 +13.69, h100 -19.60) |
+| wall-clock horizons 100 ms, 1 s, 10 s (additional, not pre-registered) | [report](results/binance-bookticker-BTCUSDT-2024-01-15-exploratory-wallclock.md) | event horizons identical to the pre-registered run | wall-clock MSE diffs: 100 ms -9.43 [-10.93, -7.94], 1 s -66.31 [-73.24, -59.89], 10 s -125.90 [-155.83, -94.60] |
+
+The wall-clock rows favour the micro-price on MSE. They are additional
+analyses (the model is calibrated event-to-event and asked about a time scale
+it was not fitted for), they are not the primary comparison, and they are
+reported because they were run, not because they change the verdict.
+
+### Live recording check
+
+`scripts/record_binance_live.py` records N minutes of the public
+`<symbol>@bookTicker` WebSocket stream and runs the same evaluation. One
+2-minute run was done as a test of the tool, not as a result: BTCUSDT,
+2026-10-31 13:06:51 to 13:08:51 UTC, 14,558 quotes, 4,367 test events, 15 of 40
+states unvisited in training. Primary comparison: micro-price worse
+(+3.17 [+0.65, +6.83] at horizon 10); horizon 1 +4.40 [+0.99, +9.12];
+horizon 100 -9.37 [-20.10, +1.45]. Too short to read anything into beyond
+"same sign". Report:
+[`results/live-BTCUSDT-20261031T130651Z.md`](results/live-BTCUSDT-20261031T130651Z.md).
+
+```bash
+pip install websocket-client
+TICK_SIZE=0.1 scripts/record_binance_live.py BTCUSDT 10   # 10 minutes
+```
+
+### Reproduce
 
 ```bash
 TICK_SIZE=0.1 scripts/fetch_binance_bookticker.sh BTCUSDT 2024-01-15
 ```
 
-(`TICK_SIZE` is the symbol's price tick; 0.1 for BTCUSDT is itself unverified
-here.) It writes `results/binance-bookticker-BTCUSDT-2024-01-15.md`. Downloaded
-data is not committed.
+It downloads the file, checks it against the published checksum, runs the
+protocol and writes the report. Downloaded data is not committed: the Binance
+archive is under CC BY-NC-SA 4.0 with a non-commercial, no-hosting clause
+(see [`docs/real-data-evaluation.md`](docs/real-data-evaluation.md#data-source-terms-and-verification)),
+so only the generated reports are in the repository. Data courtesy of Binance
+Vision. Limitations (one instrument-day, level-1 only, no costs, event-time
+calibration) are in that document and apply to everything above.
 
 ## What was measured on synthetic data
 
@@ -283,7 +352,7 @@ Added since: optional imbalance symmetrization, a martingale diagnostic,
 wall-clock evaluation horizons (additional, not pre-registered), and
 `predict_batch` in the Python bindings.
 
-Not done: a real-data result; ingestion in the Python bindings; a measured MSRV.
+Not done: real-data results beyond one Binance instrument-day (no LOBSTER, no other symbols or dates); ingestion in the Python bindings; a measured MSRV.
 
 No benchmark numbers, accuracy claims or example predictions are added to this
 README unless they come from a reproducible run on real or explicitly

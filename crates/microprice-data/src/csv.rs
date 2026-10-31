@@ -35,11 +35,11 @@
 //!   timestamps in the paired `message` file (first column, seconds after
 //!   midnight), so use [`read_lobster_files`].
 //!
-//! **Both vendor mappings are UNVERIFIED against the vendors' own
-//! documentation** (the development sandbox could not reach either site);
-//! they follow the column layouts as described to the author. If a file does
-//! not match, the reader fails with a typed error naming the missing column
-//! rather than guessing. See `docs/real-data-evaluation.md`.
+//! The Binance mapping was checked against a real daily file and the live
+//! `bookTicker` stream (see `docs/real-data-evaluation.md`); the **LOBSTER
+//! mapping is still UNVERIFIED** against the vendor's documentation. If a
+//! file does not match, the reader fails with a typed error naming the
+//! missing column rather than guessing.
 //!
 //! ## Price and quantity conversion
 //!
@@ -176,7 +176,8 @@ pub struct CsvIngestConfig {
 }
 
 impl CsvIngestConfig {
-    /// Binance USD-M futures daily `bookTicker` file. UNVERIFIED mapping.
+    /// Binance USD-M futures daily `bookTicker` file. Mapping verified against a
+    /// real file (see `docs/real-data-evaluation.md`).
     pub fn binance_book_ticker(tick_size: f64) -> Self {
         CsvIngestConfig {
             schema: CsvSchema {

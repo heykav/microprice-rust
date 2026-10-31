@@ -7,6 +7,7 @@ cut from these changes; version numbers are unchanged.
 ## [Unreleased]
 
 ### Added
+- First real-data result (Binance USD-M BTCUSDT `bookTicker`, 2024-01-15, pre-registered protocol): negative, reports under `results/`, run log in `docs/real-data-evaluation.md`. Binance column mapping verified (LOBSTER still unverified). `scripts/record_binance_live.py` records live quotes and evaluates them. README and banner status text updated.
 - Visuals: README banner and crate-layout diagram (dark/light SVG), figures
   regenerated from CLI output by `scripts/make_figures.py` (G* heatmap, MAE
   comparison, martingale drift vs fixed-point residual; all synthetic data),
