@@ -1,12 +1,14 @@
 # Real-data evaluation protocol
 
-**Status: no real-data result exists yet.** This document was written, and
-committed, before any real-data number was produced by this project. The
-development environment could not reach the dataset hosts (checked with
-`curl -I`: `data.binance.vision`, `lobsterdata.com` and several other public
-quote sources were unreachable), so the only data the code has ever seen is
-the synthetic generator's and tiny hand-written format fixtures. Both are
-"plumbing" data; nothing in the repository is a result about real markets.
+**Status: one real-data result exists** (Binance USD-M BTCUSDT, 2024-01-15;
+see the README's "Real-data result" and the run log at the end of this
+document). This document was written, and committed, before any real-data
+number was produced by this project, and the protocol below was not changed
+afterwards. The result is negative: the calibrated micro-price is worse than
+the naive mid at the primary comparison. Historical note: when the protocol
+was written the development environment could not reach the dataset hosts, so
+the only data the code had seen was the synthetic generator's and tiny
+hand-written format fixtures.
 
 The protocol below is fixed in advance so the eventual result cannot be
 shaped by what it turns out to be.
@@ -86,17 +88,43 @@ row `i` of one file corresponds to row `i` of the other, and a row-count
 mismatch is an error. Only the first four columns are read; deeper levels are
 ignored.
 
-### Verification status of these mappings: UNVERIFIED
+### Data source terms and verification
 
-Both layouts are taken from the task description this work was done against,
-**not** checked against the vendors' own documentation or a real file (the
-hosts were unreachable). The reader fails with a typed error naming the
-missing column if a header does not match, and rejects a LOBSTER row-count
-mismatch, but a layout that is structurally compatible and semantically
-different would go undetected. Whoever runs the first real evaluation should
-open the first few lines of the file and the vendor's documentation and
-confirm the mapping before trusting any number. Timestamp units (Binance
-milliseconds, LOBSTER seconds) are part of this caveat.
+**Terms (read 2026-10-31).** The archive's repository
+(`github.com/binance/binance-public-data`) is MIT-licensed for its code, and
+its `TERMS_AND_CONDITIONS` licenses the datasets under Creative Commons
+Attribution-NonCommercial-ShareAlike 4.0: academic research and non-monetized
+open educational projects are permitted; sub-licensing, hosting or
+commercially exploiting the datasets is not, and redistributed derivative
+work must attribute Binance Vision. No account, key or payment is needed to
+download. This project is open, non-commercial research code, uses the data
+only to produce the aggregate report, and does **not** commit or host any of
+it; credit: Binance Vision. Anyone reusing this for commercial purposes needs
+their own licence from Binance. Do not use the data for live trading.
+
+**Binance `bookTicker` mapping: VERIFIED (2026-10-31)** by three checks:
+
+1. The header row of the real file `BTCUSDT-bookTicker-2024-01-15.csv` is
+   exactly `update_id,best_bid_price,best_bid_qty,best_ask_price,best_ask_qty,transaction_time,event_time`,
+   matching the preset. The first rows are `3831603310899,41734.90000000,0.70200000,41735.00000000,2.03300000,1705276800014,1705276800018`
+   (bid below ask, sizes in BTC).
+2. `event_time` is Unix **milliseconds**: the first row is 2024-01-15
+   00:00:00.018 UTC, and the last of the 5,000,000 used rows is at about
+   06:26 UTC, in order. In a live capture of the public
+   `btcusdt@bookTicker` stream (fields `u, b, B, a, A, T, E`, i.e. update id,
+   bid price/qty, ask price/qty, transaction time, event time) `E` was within
+   about 0.1 s of the local clock when read in milliseconds, and the field
+   order of the archive columns is the same as that stream's.
+3. Prices lie on the 0.1 grid (only 34 of 5,000,035 rows were off-grid and
+   skipped) and the BTCUSDT `PRICE_FILTER.tickSize` from the exchange's
+   `exchangeInfo` is `0.10` (checked 2026-10-31; the 2024-01-15 value is
+   inferred from the grid check, not looked up historically).
+
+Caveat: I could not find an official column dictionary for the `bookTicker`
+archive files (the archive repository documents aggTrades, klines and trades
+only), so the mapping rests on checks 1 to 3, not on a vendor table.
+
+**LOBSTER mapping: still UNVERIFIED** (no LOBSTER file was available).
 
 ### Generic CSV
 
@@ -257,7 +285,7 @@ is therefore optimistic.
 * **No trading costs, no execution model.** A lower MSE is a statement about
   price prediction, not profit.
 * **Bootstrap intervals are approximate**; the block length is a heuristic.
-* **Mapping and units are UNVERIFIED** (see above), and tick size is supplied
+* **The LOBSTER mapping is UNVERIFIED** (the Binance one is verified, see above), and tick size is supplied
   by the operator; a wrong tick size yields off-grid rejections (loud) or, in
   the worst case, a valid but wrong grid (silent).
 * Departures of the model from Stoikov (2018) are listed in the README.
@@ -270,9 +298,8 @@ With normal internet access, from the repository root:
 TICK_SIZE=0.1 scripts/fetch_binance_bookticker.sh BTCUSDT 2024-01-15
 ```
 
-(The BTCUSDT USD-M tick size of 0.1 is itself UNVERIFIED here; confirm it in
-the exchange's `exchangeInfo` `PRICE_FILTER.tickSize` and choose a date for
-which the file exists.) The script downloads and checksum-checks the file
+(The BTCUSDT USD-M tick size of 0.1 was confirmed against `exchangeInfo`
+`PRICE_FILTER.tickSize`; for other symbols look it up and never guess.) The script downloads and checksum-checks the file
 into the git-ignored `data/` directory, builds the CLI in release mode, runs
 `microprice evaluate-csv` with the settings above, and writes
 `results/binance-bookticker-<SYMBOL>-<DATE>.md`. The equivalent manual
@@ -298,3 +325,33 @@ cargo run --release -p microprice-cli -- evaluate-csv \
 Publishing the result means: copy the generated report into the README's
 "Real-data result" section unedited, add the date, the exact command, the
 commit hash and the file checksum, and keep the limitations above next to it.
+
+## Live mode
+
+`scripts/record_binance_live.py SYMBOL MINUTES` (needs `websocket-client`,
+`TICK_SIZE` set) records the public `<symbol>@bookTicker` stream into a CSV
+with the archive's columns and runs the same `evaluate-csv` command and
+settings. It is for trying the tool on fresh quotes; short recordings leave
+many states unvisited and say little. The recording is written to the
+git-ignored `data/` and is covered by the same terms note as above.
+
+## Run log (every run done; none dropped)
+
+All on commit `6787864`, file `BTCUSDT-bookTicker-2024-01-15.csv` (zip SHA-256
+`50de14aafe593160e613bcdb46e0f172cbc9ef222ae64ec84b6e3e5ef711d37f`, matches
+the published checksum), `--format binance-bookticker --tick-size 0.1
+--skip-invalid-rows --max-events 5000000`. Symbol and date were fixed in
+advance as the example of this document and were not chosen after looking at
+any result.
+
+| # | label | extra flags | report |
+|---|---|---|---|
+| 1 | **pre-registered** | none | `results/binance-bookticker-BTCUSDT-2024-01-15.md` |
+| 2 | exploratory | `--symmetrize` | `results/binance-bookticker-BTCUSDT-2024-01-15-exploratory-symmetrize.md` |
+| 3 | exploratory (additional horizons) | `--wall-clock-horizons-ms 100,1000,10000` | `results/binance-bookticker-BTCUSDT-2024-01-15-exploratory-wallclock.md` |
+| 4 | tool test, 2 min live, BTCUSDT 2026-10-31 | `scripts/record_binance_live.py BTCUSDT 2` | `results/live-BTCUSDT-20261031T130651Z.md` |
+
+Run 1 output: primary comparison worse than the naive mid, secondary worse
+than the weighted mid. No other symbol, date or setting was run. The result
+covers only the first 6.4 hours of that day because of the `--max-events`
+default.

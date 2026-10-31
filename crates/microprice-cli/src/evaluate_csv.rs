@@ -27,7 +27,7 @@ use crate::train::{calibrate_model, parse_spread_bounds, Calibrated};
 pub enum CsvFormatArg {
     /// Named-column CSV; map columns with the --*-col flags.
     Generic,
-    /// Binance USD-M futures daily bookTicker file (mapping UNVERIFIED).
+    /// Binance USD-M futures daily bookTicker file (mapping verified).
     BinanceBookticker,
     /// LOBSTER orderbook + message files (mapping UNVERIFIED).
     Lobster,
